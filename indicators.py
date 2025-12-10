@@ -220,6 +220,7 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
     """Fetch history and compute common indicators. Returns a dict.
 
     Tries local CSV cache first (for Gold-API daily snapshots), then falls back to yfinance.
+    For gold/silver, uses futures tickers (GC=F, SI=F) as Yahoo spot tickers no longer work.
 
     Keys returned:
         - last_close: most recent closing price from history
@@ -236,24 +237,40 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
         - trend: "uptrend", "downtrend", or "chop"
         - history: full DataFrame
     """
-    # Map tickers to local cache symbols
+    # Map tickers to local cache symbols and futures tickers
     symbol_map = {
         "XAUUSD=X": "XAU",
         "XAGUSD=X": "XAG",
         "GC=F": "XAU",
         "SI=F": "XAG",
     }
+    # Yahoo spot tickers are broken, use futures instead
+    futures_ticker_map = {
+        "XAUUSD=X": "GC=F",
+        "XAGUSD=X": "SI=F",
+        "GC=F": "GC=F",
+        "SI=F": "SI=F",
+    }
     symbol = symbol_map.get(yahoo_ticker)
     metal = "gold" if symbol == "XAU" else "silver" if symbol == "XAG" else None
 
+    # Get the working futures ticker for yfinance fallback
+    yf_ticker = futures_ticker_map.get(yahoo_ticker, yahoo_ticker)
+
     # Try local cache first
+    df = None
     if symbol:
         local = load_history(symbol)
-        if local is not None and not local.empty:
+        if local is not None and not local.empty and len(local) >= 50:
+            # Only use local cache if we have enough data for indicators
             df = local
-        else:
-            df = fetch_history(yahoo_ticker, period=period)
-    else:
+
+    # Fallback to Yahoo Finance (always use futures tickers for metals)
+    if df is None or df.empty:
+        df = fetch_history(yf_ticker, period=period)
+
+    # If still no data, try without local cache preference
+    if df is None or df.empty:
         df = fetch_history(yahoo_ticker, period=period)
 
     if df is None or df.empty:
