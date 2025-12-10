@@ -111,9 +111,67 @@ if not check_password():
 # === CUSTOM CSS FOR PROFESSIONAL STYLING ===
 st.markdown("""
 <style>
-    /* Main background and font */
-    .stApp {
-        background: linear-gradient(180deg, #0e1117 0%, #1a1f2e 100%);
+    /* ===== FORCE DARK THEME EVERYWHERE ===== */
+    :root {
+        color-scheme: dark !important;
+    }
+
+    /* Main background - force dark on all devices */
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"],
+    .main, .block-container, [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0e1117 0%, #1a1f2e 100%) !important;
+        color: #ffffff !important;
+    }
+
+    /* Force all text to be light colored */
+    .stApp p, .stApp span, .stApp div, .stApp label, .stApp h1, .stApp h2,
+    .stApp h3, .stApp h4, .stApp h5, .stApp h6, .stMarkdown,
+    [data-testid="stMarkdownContainer"], [data-testid="stText"] {
+        color: #ffffff !important;
+    }
+
+    /* Fix Streamlit native elements */
+    .stSelectbox label, .stTextInput label, .stNumberInput label,
+    .stRadio label, .stCheckbox label, .stSlider label {
+        color: #ffffff !important;
+    }
+
+    .stSelectbox [data-baseweb="select"],
+    .stTextInput input, .stNumberInput input {
+        background-color: #1e2530 !important;
+        color: #ffffff !important;
+        border-color: #444 !important;
+    }
+
+    /* Tabs styling */
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: #1e2530 !important;
+        border-radius: 8px;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        color: #aaa !important;
+    }
+
+    .stTabs [aria-selected="true"] {
+        color: #FFD700 !important;
+        background-color: #252d3a !important;
+    }
+
+    /* Expander styling */
+    .streamlit-expanderHeader {
+        background: #1e2530 !important;
+        border-radius: 8px !important;
+        color: #ffffff !important;
+    }
+
+    .streamlit-expanderContent {
+        background: #1a1f2e !important;
+        color: #ffffff !important;
+    }
+
+    details summary span {
+        color: #ffffff !important;
     }
 
     /* Header styling */
@@ -121,6 +179,7 @@ st.markdown("""
         background: linear-gradient(90deg, #FFD700 0%, #FFA500 50%, #FFD700 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
+        background-clip: text;
         font-size: 3rem;
         font-weight: 800;
         text-align: center;
@@ -130,7 +189,7 @@ st.markdown("""
 
     .sub-header {
         text-align: center;
-        color: #888;
+        color: #b0b0b0 !important;
         font-size: 1.1rem;
         margin-top: -10px;
         margin-bottom: 30px;
@@ -138,10 +197,10 @@ st.markdown("""
 
     /* Card styling */
     .metric-card {
-        background: linear-gradient(145deg, #1e2530 0%, #252d3a 100%);
+        background: linear-gradient(145deg, #1e2530 0%, #252d3a 100%) !important;
         border-radius: 16px;
         padding: 20px;
-        border: 1px solid #333;
+        border: 1px solid #444;
         box-shadow: 0 4px 20px rgba(0,0,0,0.3);
         margin-bottom: 16px;
     }
@@ -158,33 +217,33 @@ st.markdown("""
     .price-large {
         font-size: 2.5rem;
         font-weight: 700;
-        color: #fff;
+        color: #fff !important;
         margin: 0;
     }
 
     .price-gold {
-        color: #FFD700;
+        color: #FFD700 !important;
     }
 
     .price-silver {
-        color: #C0C0C0;
+        color: #C0C0C0 !important;
     }
 
     /* Section headers */
     .section-header {
         font-size: 1.4rem;
         font-weight: 600;
-        color: #fff;
+        color: #fff !important;
         margin-top: 24px;
         margin-bottom: 12px;
         padding-bottom: 8px;
-        border-bottom: 2px solid #333;
+        border-bottom: 2px solid #444;
     }
 
     /* Signal badges */
     .signal-bullish {
         background: linear-gradient(135deg, #00c853 0%, #00e676 100%);
-        color: #000;
+        color: #000 !important;
         padding: 4px 12px;
         border-radius: 20px;
         font-weight: 600;
@@ -194,7 +253,7 @@ st.markdown("""
 
     .signal-bearish {
         background: linear-gradient(135deg, #ff1744 0%, #ff5252 100%);
-        color: #fff;
+        color: #fff !important;
         padding: 4px 12px;
         border-radius: 20px;
         font-weight: 600;
@@ -204,7 +263,7 @@ st.markdown("""
 
     .signal-neutral {
         background: linear-gradient(135deg, #455a64 0%, #607d8b 100%);
-        color: #fff;
+        color: #fff !important;
         padding: 4px 12px;
         border-radius: 20px;
         font-weight: 600;
@@ -217,41 +276,41 @@ st.markdown("""
         display: flex;
         justify-content: space-between;
         padding: 8px 0;
-        border-bottom: 1px solid #2a2a2a;
+        border-bottom: 1px solid #3a3a3a;
     }
 
     .data-label {
-        color: #888;
+        color: #b0b0b0 !important;
         font-size: 0.9rem;
     }
 
     .data-value {
-        color: #fff;
+        color: #fff !important;
         font-weight: 500;
         font-size: 0.9rem;
     }
 
     /* Verdict box */
     .verdict-box {
-        background: linear-gradient(145deg, #1a2332 0%, #1e2940 100%);
+        background: linear-gradient(145deg, #1a2332 0%, #1e2940 100%) !important;
         border-radius: 16px;
         padding: 24px;
         text-align: center;
-        border: 2px solid #333;
+        border: 2px solid #444;
     }
 
     .verdict-bullish {
-        border-color: #00c853;
+        border-color: #00c853 !important;
         box-shadow: 0 0 30px rgba(0,200,83,0.2);
     }
 
     .verdict-bearish {
-        border-color: #ff1744;
+        border-color: #ff1744 !important;
         box-shadow: 0 0 30px rgba(255,23,68,0.2);
     }
 
     .verdict-neutral {
-        border-color: #ffc107;
+        border-color: #ffc107 !important;
         box-shadow: 0 0 30px rgba(255,193,7,0.2);
     }
 
@@ -263,36 +322,30 @@ st.markdown("""
 
     .verdict-score {
         font-size: 1rem;
-        color: #888;
+        color: #b0b0b0 !important;
         margin-top: 4px;
     }
 
     /* Macro indicator cards */
     .macro-card {
-        background: #1e2530;
+        background: #1e2530 !important;
         border-radius: 12px;
         padding: 16px;
         text-align: center;
-        border: 1px solid #333;
+        border: 1px solid #444;
     }
 
     .macro-value {
         font-size: 1.5rem;
         font-weight: 700;
-        color: #fff;
+        color: #fff !important;
     }
 
     .macro-label {
         font-size: 0.8rem;
-        color: #888;
+        color: #b0b0b0 !important;
         text-transform: uppercase;
         letter-spacing: 1px;
-    }
-
-    /* Expander styling */
-    .streamlit-expanderHeader {
-        background: #1e2530 !important;
-        border-radius: 8px !important;
     }
 
     /* Hide Streamlit branding */
@@ -302,25 +355,73 @@ st.markdown("""
     /* Custom divider */
     .custom-divider {
         height: 2px;
-        background: linear-gradient(90deg, transparent 0%, #333 50%, transparent 100%);
+        background: linear-gradient(90deg, transparent 0%, #444 50%, transparent 100%);
         margin: 40px 0;
     }
 
     /* Info box */
     .info-box {
-        background: rgba(255,215,0,0.1);
-        border: 1px solid rgba(255,215,0,0.3);
+        background: rgba(255,215,0,0.15) !important;
+        border: 1px solid rgba(255,215,0,0.4);
         border-radius: 8px;
         padding: 12px 16px;
         margin: 8px 0;
+        color: #fff !important;
     }
 
     /* Timestamp */
     .timestamp {
         text-align: center;
-        color: #555;
+        color: #888 !important;
         font-size: 0.85rem;
         margin-top: 40px;
+    }
+
+    /* ===== MOBILE RESPONSIVE STYLES ===== */
+    @media (max-width: 768px) {
+        .main-header {
+            font-size: 2rem !important;
+        }
+
+        .sub-header {
+            font-size: 0.95rem !important;
+        }
+
+        .price-large {
+            font-size: 1.8rem !important;
+        }
+
+        .metric-card {
+            padding: 15px !important;
+        }
+
+        .verdict-text {
+            font-size: 1.4rem !important;
+        }
+
+        .verdict-box {
+            padding: 16px !important;
+        }
+
+        .macro-value {
+            font-size: 1.2rem !important;
+        }
+
+        .section-header {
+            font-size: 1.2rem !important;
+        }
+
+        /* Better touch targets on mobile */
+        .stButton button {
+            min-height: 48px !important;
+            font-size: 1rem !important;
+        }
+
+        /* Improve readability on small screens */
+        .block-container {
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
