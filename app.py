@@ -143,19 +143,53 @@ st.markdown("""
         border-color: #444 !important;
     }
 
-    /* Tabs styling */
+    /* Tabs styling - prominent metal selector */
     .stTabs [data-baseweb="tab-list"] {
         background-color: #1e2530 !important;
-        border-radius: 8px;
+        border-radius: 12px;
+        padding: 8px !important;
+        gap: 8px !important;
+        justify-content: center !important;
+        border: 2px solid #333 !important;
     }
 
     .stTabs [data-baseweb="tab"] {
         color: #aaa !important;
+        font-size: 1.1rem !important;
+        font-weight: 600 !important;
+        padding: 12px 32px !important;
+        border-radius: 8px !important;
+        transition: all 0.2s ease !important;
+    }
+
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: #2a3444 !important;
+        color: #fff !important;
     }
 
     .stTabs [aria-selected="true"] {
-        color: #FFD700 !important;
-        background-color: #252d3a !important;
+        color: #000 !important;
+        background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%) !important;
+        box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3) !important;
+    }
+
+    /* Tab highlight indicator */
+    .stTabs [data-baseweb="tab-highlight"] {
+        display: none !important;
+    }
+
+    .stTabs [data-baseweb="tab-border"] {
+        display: none !important;
+    }
+
+    /* Metal selector header */
+    .metal-selector-header {
+        text-align: center;
+        color: #b0b0b0 !important;
+        font-size: 0.95rem;
+        margin-bottom: 12px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
     }
 
     /* Expander styling */
@@ -421,6 +455,23 @@ st.markdown("""
         .block-container {
             padding-left: 1rem !important;
             padding-right: 1rem !important;
+        }
+
+        /* More prominent tabs on mobile */
+        .stTabs [data-baseweb="tab-list"] {
+            flex-direction: column !important;
+            padding: 12px !important;
+        }
+
+        .stTabs [data-baseweb="tab"] {
+            width: 100% !important;
+            padding: 16px 24px !important;
+            font-size: 1.2rem !important;
+            justify-content: center !important;
+        }
+
+        .metal-selector-header {
+            font-size: 0.85rem !important;
         }
     }
 </style>
@@ -764,6 +815,7 @@ if "error" not in macro_data:
 # === TECHNICAL ANALYSIS TABS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 st.markdown("### 📊 Technical Analysis")
+st.markdown('<p class="metal-selector-header">👇 Select a metal to view detailed analysis</p>', unsafe_allow_html=True)
 
 tab_gold, tab_silver = st.tabs(["🥇 GOLD", "🥈 SILVER"])
 
