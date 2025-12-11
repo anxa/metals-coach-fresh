@@ -23,9 +23,6 @@ def get_api_key():
     return os.getenv("ANTHROPIC_API_KEY")
 
 
-ANTHROPIC_API_KEY = get_api_key()
-
-
 def build_market_context(
     metal: str,
     spot_price: float,
@@ -143,7 +140,8 @@ def generate_ai_summary(
     Returns:
         Markdown-formatted summary string, or None if API unavailable.
     """
-    if not ANTHROPIC_API_KEY:
+    api_key = get_api_key()
+    if not api_key:
         return None
 
     # Build context
@@ -180,7 +178,7 @@ Keep the tone educational and instructive. Explain the "why" behind each observa
 Format your response in clean markdown."""
 
     try:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        client = anthropic.Anthropic(api_key=api_key)
 
         message = client.messages.create(
             model="claude-sonnet-4-20250514",

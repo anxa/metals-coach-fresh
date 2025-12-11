@@ -1130,7 +1130,7 @@ st.caption("Click to generate a comprehensive AI-powered market analysis")
 ai_col1, ai_col2, ai_col3 = st.columns(3)
 
 with ai_col1:
-    if st.button("🥇 Generate Gold Analysis", use_container_width=True, type="primary"):
+    if st.button("🥇 Generate Gold Analysis", use_container_width=True, type="primary", key="btn_gold_ai"):
         with st.spinner("Claude is analyzing gold markets..."):
             gold_analysis = generate_ai_summary(
                 "Gold", gold_price,
@@ -1140,10 +1140,10 @@ with ai_col1:
             if gold_analysis:
                 st.markdown(gold_analysis)
             else:
-                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to .env file.")
+                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 
 with ai_col2:
-    if st.button("🥈 Generate Silver Analysis", use_container_width=True, type="primary"):
+    if st.button("🥈 Generate Silver Analysis", use_container_width=True, type="primary", key="btn_silver_ai"):
         with st.spinner("Claude is analyzing silver markets..."):
             silver_analysis = generate_ai_summary(
                 "Silver", silver_price,
@@ -1153,10 +1153,10 @@ with ai_col2:
             if silver_analysis:
                 st.markdown(silver_analysis)
             else:
-                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to .env file.")
+                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 
 with ai_col3:
-    if st.button("🔶 Generate Copper Analysis", use_container_width=True, type="primary"):
+    if st.button("🔶 Generate Copper Analysis", use_container_width=True, type="primary", key="btn_copper_ai"):
         with st.spinner("Claude is analyzing copper markets..."):
             copper_analysis = generate_ai_summary(
                 "Copper", copper_price,
@@ -1166,7 +1166,7 @@ with ai_col3:
             if copper_analysis:
                 st.markdown(copper_analysis)
             else:
-                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to .env file.")
+                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 
 # === FOOTER ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
