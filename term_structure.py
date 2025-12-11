@@ -17,6 +17,7 @@ from typing import Dict, Any, Optional
 # Futures tickers
 GOLD_FUTURES = "GC=F"
 SILVER_FUTURES = "SI=F"
+COPPER_FUTURES = "HG=F"
 
 
 def get_futures_price(ticker: str) -> Optional[float]:
@@ -128,7 +129,15 @@ def analyze_term_structure(
         Dict with term structure analysis
     """
     # Get futures price
-    futures_ticker = GOLD_FUTURES if metal.lower() == "gold" else SILVER_FUTURES
+    metal_lower = metal.lower()
+    if metal_lower == "gold":
+        futures_ticker = GOLD_FUTURES
+    elif metal_lower == "silver":
+        futures_ticker = SILVER_FUTURES
+    elif metal_lower == "copper":
+        futures_ticker = COPPER_FUTURES
+    else:
+        return {"error": f"Unknown metal: {metal}"}
     futures_price = get_futures_price(futures_ticker)
 
     if futures_price is None:
@@ -180,12 +189,13 @@ def analyze_term_structure(
 
 def get_term_structure_summary() -> Dict[str, Any]:
     """
-    Get term structure analysis for both gold and silver.
+    Get term structure analysis for gold, silver, and copper.
     """
     return {
         "timestamp": datetime.now().isoformat(),
         "gold": analyze_term_structure("gold"),
         "silver": analyze_term_structure("silver"),
+        "copper": analyze_term_structure("copper"),
     }
 
 

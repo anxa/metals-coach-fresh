@@ -56,6 +56,12 @@ FRED_SERIES = {
     "breakeven_5y": "T5YIE",         # 5-Year Breakeven Inflation Rate
 }
 
+# Copper-specific FRED series
+COPPER_FRED_SERIES = {
+    "china_pmi": "MPMICN",           # China Manufacturing PMI (NBS)
+    "us_ism_pmi": "NAPMPI",          # ISM Manufacturing PMI
+}
+
 
 def fetch_fred_series(series_id: str, limit: int = 30) -> Optional[pd.DataFrame]:
     """
@@ -324,6 +330,165 @@ def get_macro_dashboard() -> Dict[str, Any]:
     if bullish_count >= 3:
         result["macro_bias"] = "bullish"
     elif bearish_count >= 3:
+        result["macro_bias"] = "bearish"
+    else:
+        result["macro_bias"] = "neutral"
+
+    result["bullish_factors"] = bullish_count
+    result["bearish_factors"] = bearish_count
+
+    return result
+
+
+def get_copper_macro() -> Dict[str, Any]:
+    """
+    Fetch copper-specific macro indicators.
+
+    Key drivers for copper (different from gold):
+    - China Manufacturing PMI (China = 50% of global copper demand)
+    - US ISM Manufacturing PMI
+    - USD/CNY exchange rate
+
+    Returns:
+        Dict with copper-focused macro data
+    """
+    result = {
+        "timestamp": datetime.now().isoformat(),
+        "indicators": {},
+    }
+
+    # China Manufacturing PMI - THE key indicator for copper
+    if FRED_API_KEY:
+        china_pmi_df = fetch_fred_series(COPPER_FRED_SERIES["china_pmi"], limit=12)
+        if china_pmi_df is not None and not china_pmi_df.empty:
+            current = float(china_pmi_df["value"].iloc[-1])
+            prev = float(china_pmi_df["value"].iloc[-2]) if len(china_pmi_df) > 1 else current
+
+            # PMI interpretation
+            if current > 52:
+                regime = "strong expansion"
+                copper_impact = "strongly bullish"
+            elif current > 50:
+                regime = "expansion"
+                copper_impact = "bullish"
+            elif current > 48:
+                regime = "mild contraction"
+                copper_impact = "bearish"
+            else:
+                regime = "contraction"
+                copper_impact = "strongly bearish"
+
+            result["indicators"]["china_pmi"] = {
+                "name": "China Manufacturing PMI",
+                "value": current,
+                "change": current - prev,
+                "regime": regime,
+                "copper_impact": copper_impact,
+                "source": "FRED (MPMICN)",
+                "note": "China consumes ~50% of global copper",
+            }
+        else:
+            result["indicators"]["china_pmi"] = {
+                "name": "China Manufacturing PMI",
+                "error": "Data not available",
+                "note": "Ensure FRED_API_KEY is set",
+            }
+    else:
+        result["indicators"]["china_pmi"] = {
+            "name": "China Manufacturing PMI",
+            "error": "No FRED API key",
+            "note": "Add FRED_API_KEY to secrets for China PMI data",
+        }
+
+    # US ISM Manufacturing PMI
+    if FRED_API_KEY:
+        us_pmi_df = fetch_fred_series(COPPER_FRED_SERIES["us_ism_pmi"], limit=12)
+        if us_pmi_df is not None and not us_pmi_df.empty:
+            current = float(us_pmi_df["value"].iloc[-1])
+            prev = float(us_pmi_df["value"].iloc[-2]) if len(us_pmi_df) > 1 else current
+
+            if current > 52:
+                regime = "strong expansion"
+                copper_impact = "bullish"
+            elif current > 50:
+                regime = "expansion"
+                copper_impact = "mildly bullish"
+            elif current > 48:
+                regime = "mild contraction"
+                copper_impact = "mildly bearish"
+            else:
+                regime = "contraction"
+                copper_impact = "bearish"
+
+            result["indicators"]["us_ism_pmi"] = {
+                "name": "US ISM Manufacturing PMI",
+                "value": current,
+                "change": current - prev,
+                "regime": regime,
+                "copper_impact": copper_impact,
+                "source": "FRED (NAPMPI)",
+            }
+        else:
+            result["indicators"]["us_ism_pmi"] = {
+                "name": "US ISM Manufacturing PMI",
+                "error": "Data not available",
+            }
+    else:
+        result["indicators"]["us_ism_pmi"] = {
+            "name": "US ISM Manufacturing PMI",
+            "error": "No FRED API key",
+        }
+
+    # USD/CNY exchange rate
+    try:
+        cny = yf.Ticker("CNY=X")
+        hist = cny.history(period="1mo")
+        if not hist.empty:
+            current = float(hist["Close"].iloc[-1])
+            prev = float(hist["Close"].iloc[-2]) if len(hist) > 1 else current
+            week_ago = float(hist["Close"].iloc[-5]) if len(hist) >= 5 else prev
+
+            change = current - prev
+            week_change = current - week_ago
+
+            # Higher USD/CNY = stronger dollar vs yuan = bearish for commodities
+            if week_change > 0.05:
+                trend = "strengthening (USD)"
+                copper_impact = "bearish"
+            elif week_change < -0.05:
+                trend = "weakening (USD)"
+                copper_impact = "bullish"
+            else:
+                trend = "stable"
+                copper_impact = "neutral"
+
+            result["indicators"]["usd_cny"] = {
+                "name": "USD/CNY",
+                "value": current,
+                "change": change,
+                "week_change": week_change,
+                "trend": trend,
+                "copper_impact": copper_impact,
+                "note": "Weaker USD (lower) = bullish for copper",
+            }
+        else:
+            result["indicators"]["usd_cny"] = {"name": "USD/CNY", "error": "No data"}
+    except Exception as e:
+        result["indicators"]["usd_cny"] = {"name": "USD/CNY", "error": str(e)}
+
+    # Overall copper macro assessment
+    bullish_count = sum(
+        1 for ind in result["indicators"].values()
+        if ind.get("copper_impact") in ["bullish", "strongly bullish", "mildly bullish"]
+    )
+    bearish_count = sum(
+        1 for ind in result["indicators"].values()
+        if ind.get("copper_impact") in ["bearish", "strongly bearish", "mildly bearish"]
+    )
+
+    if bullish_count >= 2:
+        result["macro_bias"] = "bullish"
+    elif bearish_count >= 2:
         result["macro_bias"] = "bearish"
     else:
         result["macro_bias"] = "neutral"

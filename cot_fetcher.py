@@ -61,8 +61,16 @@ def fetch_cot_multi_year(years: list = None) -> pd.DataFrame:
 
 
 def get_metal_cot(df: pd.DataFrame, metal: str) -> pd.DataFrame:
-    """Filter COT data for a specific metal (GOLD or SILVER)."""
-    market_name = f"{metal.upper()} - COMMODITY EXCHANGE INC."
+    """Filter COT data for a specific metal (GOLD, SILVER, or COPPER)."""
+    # Market names vary by metal - copper has a different format
+    market_names = {
+        "GOLD": "GOLD - COMMODITY EXCHANGE INC.",
+        "SILVER": "SILVER - COMMODITY EXCHANGE INC.",
+        "COPPER": "COPPER- #1 - COMMODITY EXCHANGE INC.",  # Note the dash and #1
+    }
+    market_name = market_names.get(metal.upper())
+    if not market_name:
+        return pd.DataFrame()
     metal_df = df[df['Market_and_Exchange_Names'] == market_name].copy()
     metal_df = metal_df.sort_values('Report_Date_as_YYYY-MM-DD')
     return metal_df
@@ -112,7 +120,7 @@ def analyze_cot(metal: str = "GOLD", years: list = None) -> Dict[str, Any]:
     Fetch and analyze COT data for a metal.
 
     Args:
-        metal: "GOLD" or "SILVER"
+        metal: "GOLD", "SILVER", or "COPPER"
         years: List of years to fetch (default: last 3 years)
 
     Returns:
@@ -248,3 +256,23 @@ if __name__ == "__main__":
         print(f"\nOpen Interest:   {silver['open_interest']:>12,}")
     else:
         print(silver)
+
+    print("\n" + "=" * 40)
+    print("=== COPPER COT Analysis ===")
+    copper = get_cot_summary("COPPER")
+    if "error" not in copper:
+        print(f"Report Date: {copper['report_date']}")
+        print(f"\nCommercial Hedgers:")
+        print(f"  Net Position:  {copper['commercial_net']:>12,}")
+        print(f"  WoW Change:    {copper['commercial_wow']:>+12,}")
+        print(f"  Percentile:    {copper['commercial_percentile']:>11.1f}%")
+        print(f"  Signal:        {copper['commercial_signal']}")
+        print(f"\nManaged Money:")
+        print(f"  Net Position:  {copper['managed_money_net']:>12,}")
+        print(f"  WoW Change:    {copper['managed_money_wow']:>+12,}")
+        print(f"  Percentile:    {copper['managed_money_percentile']:>11.1f}%")
+        print(f"  Signal:        {copper['managed_money_signal']}")
+        print(f"  Momentum:      {copper['mm_momentum']}")
+        print(f"\nOpen Interest:   {copper['open_interest']:>12,}")
+    else:
+        print(copper)

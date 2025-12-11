@@ -243,6 +243,7 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
         "XAGUSD=X": "XAG",
         "GC=F": "XAU",
         "SI=F": "XAG",
+        "HG=F": "HG",  # Copper
     }
     # Yahoo spot tickers are broken, use futures instead
     futures_ticker_map = {
@@ -250,9 +251,10 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
         "XAGUSD=X": "SI=F",
         "GC=F": "GC=F",
         "SI=F": "SI=F",
+        "HG=F": "HG=F",  # Copper
     }
     symbol = symbol_map.get(yahoo_ticker)
-    metal = "gold" if symbol == "XAU" else "silver" if symbol == "XAG" else None
+    metal = "gold" if symbol == "XAU" else "silver" if symbol == "XAG" else "copper" if symbol == "HG" else None
 
     # Get the working futures ticker for yfinance fallback
     yf_ticker = futures_ticker_map.get(yahoo_ticker, yahoo_ticker)

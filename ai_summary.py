@@ -310,6 +310,158 @@ def get_quick_verdict(
     }
 
 
+def get_copper_verdict(
+    indicators: Dict[str, Any],
+    cot: Dict[str, Any],
+    copper_macro: Dict[str, Any],
+    term_structure: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Generate a copper-specific algorithmic verdict.
+
+    Copper uses different signals than gold:
+    - PMI data (China + US) instead of real yields
+    - No VIX/MOVE (copper is risk-on, not safe haven)
+    - USD/CNY instead of just DXY
+    """
+    bullish_signals = 0
+    bearish_signals = 0
+    signals = []
+
+    # Trend (same as gold)
+    trend = indicators.get('trend', 'unknown')
+    if trend == 'uptrend':
+        bullish_signals += 2
+        signals.append(("Trend", "bullish", "Price in uptrend (MA alignment)"))
+    elif trend == 'downtrend':
+        bearish_signals += 2
+        signals.append(("Trend", "bearish", "Price in downtrend (MA alignment)"))
+    else:
+        signals.append(("Trend", "neutral", "Choppy/unclear trend"))
+
+    # RSI (same as gold)
+    rsi = indicators.get('rsi14')
+    if rsi:
+        if rsi < 30:
+            bullish_signals += 1
+            signals.append(("RSI", "bullish", f"Oversold at {rsi:.1f}"))
+        elif rsi > 70:
+            bearish_signals += 1
+            signals.append(("RSI", "bearish", f"Overbought at {rsi:.1f}"))
+        else:
+            signals.append(("RSI", "neutral", f"Neutral at {rsi:.1f}"))
+
+    # MACD (same as gold)
+    macd_cross = indicators.get('macd_crossover')
+    macd_slope = indicators.get('macd_histogram_slope')
+    if macd_cross == 'bullish' and macd_slope == 'rising':
+        bullish_signals += 1
+        signals.append(("MACD", "bullish", "Bullish crossover with rising histogram"))
+    elif macd_cross == 'bearish' and macd_slope == 'falling':
+        bearish_signals += 1
+        signals.append(("MACD", "bearish", "Bearish crossover with falling histogram"))
+    elif macd_cross:
+        signals.append(("MACD", "neutral", f"{macd_cross} crossover, histogram {macd_slope}"))
+
+    # COT (same as gold)
+    if "error" not in cot:
+        comm_signal = cot.get('commercial_signal')
+        mm_signal = cot.get('managed_money_signal')
+
+        if comm_signal == 'bullish':
+            bullish_signals += 2
+            signals.append(("COT Commercials", "bullish", "Hedgers less short than usual"))
+        elif comm_signal == 'bearish':
+            bearish_signals += 2
+            signals.append(("COT Commercials", "bearish", "Hedgers very short"))
+
+        if mm_signal == 'extreme_short':
+            bullish_signals += 1  # Contrarian
+            signals.append(("COT Managed Money", "bullish", "Specs very short (contrarian bullish)"))
+        elif mm_signal == 'extreme_long':
+            bearish_signals += 1  # Contrarian
+            signals.append(("COT Managed Money", "bearish", "Specs very long (contrarian bearish)"))
+
+    # Copper-specific: PMI data (instead of real yields/VIX)
+    if "error" not in copper_macro:
+        copper_inds = copper_macro.get("indicators", {})
+
+        # China PMI - THE key driver for copper
+        china_pmi = copper_inds.get("china_pmi", {})
+        if "value" in china_pmi:
+            pmi_val = china_pmi["value"]
+            impact = china_pmi.get("copper_impact", "neutral")
+            if impact in ["strongly bullish", "bullish"]:
+                bullish_signals += 2
+                signals.append(("China PMI", "bullish", f"Manufacturing expanding at {pmi_val:.1f}"))
+            elif impact in ["strongly bearish", "bearish"]:
+                bearish_signals += 2
+                signals.append(("China PMI", "bearish", f"Manufacturing contracting at {pmi_val:.1f}"))
+            else:
+                signals.append(("China PMI", "neutral", f"PMI at {pmi_val:.1f}"))
+
+        # US ISM PMI
+        us_pmi = copper_inds.get("us_ism_pmi", {})
+        if "value" in us_pmi:
+            pmi_val = us_pmi["value"]
+            impact = us_pmi.get("copper_impact", "neutral")
+            if impact in ["bullish", "mildly bullish"]:
+                bullish_signals += 1
+                signals.append(("US ISM PMI", "bullish", f"US manufacturing at {pmi_val:.1f}"))
+            elif impact in ["bearish", "mildly bearish"]:
+                bearish_signals += 1
+                signals.append(("US ISM PMI", "bearish", f"US manufacturing at {pmi_val:.1f}"))
+            else:
+                signals.append(("US ISM PMI", "neutral", f"PMI at {pmi_val:.1f}"))
+
+        # USD/CNY
+        usd_cny = copper_inds.get("usd_cny", {})
+        if "value" in usd_cny:
+            impact = usd_cny.get("copper_impact", "neutral")
+            trend = usd_cny.get("trend", "stable")
+            if impact == "bullish":
+                bullish_signals += 1
+                signals.append(("USD/CNY", "bullish", f"USD weakening vs yuan ({trend})"))
+            elif impact == "bearish":
+                bearish_signals += 1
+                signals.append(("USD/CNY", "bearish", f"USD strengthening vs yuan ({trend})"))
+            else:
+                signals.append(("USD/CNY", "neutral", trend))
+
+    # Term Structure (same as gold)
+    if "error" not in term_structure:
+        structure = term_structure.get('structure', '')
+        if 'backwardation' in structure:
+            bullish_signals += 2
+            signals.append(("Term Structure", "bullish", f"{structure} - physical tightness"))
+        elif 'steep contango' in structure:
+            bearish_signals += 1
+            signals.append(("Term Structure", "bearish", "Steep contango - weak physical demand"))
+        else:
+            signals.append(("Term Structure", "neutral", structure))
+
+    # Overall verdict
+    net_score = bullish_signals - bearish_signals
+    if net_score >= 4:
+        verdict = "STRONGLY BULLISH"
+    elif net_score >= 2:
+        verdict = "BULLISH"
+    elif net_score <= -4:
+        verdict = "STRONGLY BEARISH"
+    elif net_score <= -2:
+        verdict = "BEARISH"
+    else:
+        verdict = "NEUTRAL"
+
+    return {
+        "verdict": verdict,
+        "bullish_signals": bullish_signals,
+        "bearish_signals": bearish_signals,
+        "net_score": net_score,
+        "signals": signals,
+    }
+
+
 if __name__ == "__main__":
     # Test with sample data
     test_indicators = {

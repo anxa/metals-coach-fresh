@@ -19,12 +19,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from alpha_vantage_fetcher import fetch_gold_price, fetch_silver_price
+from alpha_vantage_fetcher import fetch_gold_price, fetch_silver_price, fetch_copper_price
 from indicators import compute_indicators
 from cot_fetcher import get_cot_summary
-from macro_fetcher import get_macro_dashboard
+from macro_fetcher import get_macro_dashboard, get_copper_macro
 from term_structure import analyze_term_structure
-from ai_summary import generate_ai_summary, get_quick_verdict
+from ai_summary import generate_ai_summary, get_quick_verdict, get_copper_verdict
 
 # === PAGE CONFIG ===
 st.set_page_config(
@@ -247,6 +247,10 @@ st.markdown("""
         border-left: 4px solid #C0C0C0;
     }
 
+    .metric-card-copper {
+        border-left: 4px solid #B87333;
+    }
+
     /* Price display */
     .price-large {
         font-size: 2.5rem;
@@ -261,6 +265,10 @@ st.markdown("""
 
     .price-silver {
         color: #C0C0C0 !important;
+    }
+
+    .price-copper {
+        color: #B87333 !important;
     }
 
     /* Section headers */
@@ -530,32 +538,44 @@ with st.spinner(""):
         progress.progress(10, text="Fetching spot prices...")
         gold_price, gold_raw = fetch_gold_price()
         silver_price, silver_raw = fetch_silver_price()
+        copper_price, copper_raw = fetch_copper_price()
 
-        progress.progress(30, text="Computing technical indicators...")
+        progress.progress(25, text="Computing technical indicators...")
         gold_ind = compute_indicators("GC=F", spot_price=gold_price)
         silver_ind = compute_indicators("SI=F", spot_price=silver_price)
+        copper_ind = compute_indicators("HG=F", spot_price=copper_price)
 
-        progress.progress(50, text="Fetching COT positioning data...")
+        progress.progress(45, text="Fetching COT positioning data...")
         try:
             gold_cot = get_cot_summary("GOLD")
             silver_cot = get_cot_summary("SILVER")
+            copper_cot = get_cot_summary("COPPER")
         except Exception as e:
             gold_cot = {"error": str(e)}
             silver_cot = {"error": str(e)}
+            copper_cot = {"error": str(e)}
 
-        progress.progress(70, text="Loading macro indicators...")
+        progress.progress(65, text="Loading macro indicators...")
         try:
             macro_data = get_macro_dashboard()
         except Exception as e:
             macro_data = {"error": str(e), "indicators": {}}
 
-        progress.progress(90, text="Analyzing term structure...")
+        # Copper-specific macro (PMI data)
+        try:
+            copper_macro = get_copper_macro()
+        except Exception as e:
+            copper_macro = {"error": str(e), "indicators": {}}
+
+        progress.progress(85, text="Analyzing term structure...")
         try:
             gold_term = analyze_term_structure("gold", spot_price=gold_price)
             silver_term = analyze_term_structure("silver", spot_price=silver_price)
+            copper_term = analyze_term_structure("copper", spot_price=copper_price)
         except Exception as e:
             gold_term = {"error": str(e)}
             silver_term = {"error": str(e)}
+            copper_term = {"error": str(e)}
 
         progress.progress(100, text="Complete!")
         progress.empty()
@@ -628,10 +648,35 @@ TERM_STRUCTURE_GUIDE = """
 **Backwardation (Spot > Futures):** RARE and strongly BULLISH - indicates physical shortage
 """
 
+# Copper-specific guides
+COPPER_MACRO_GUIDE = """
+**China PMI (THE #1 DRIVER):** China consumes ~50% of global copper.
+- PMI > 50 = Manufacturing expansion = BULLISH for copper
+- PMI < 50 = Manufacturing contraction = BEARISH for copper
+
+**US ISM PMI:** Secondary demand signal.
+- > 50 = Expansion = BULLISH
+- < 50 = Contraction = BEARISH
+
+**USD/CNY:** Dollar strength vs Chinese yuan.
+- Falling = Weaker dollar = BULLISH for commodities
+- Rising = Stronger dollar = BEARISH for commodities
+"""
+
+COPPER_INVENTORY_GUIDE = """
+**LME/COMEX Inventories are THE key short-term driver for copper.**
+
+Unlike gold/silver (monetary metals), copper price is driven by physical supply/demand:
+- **Falling inventories** = Physical tightness = BULLISH
+- **Rising inventories** = Oversupply = BEARISH
+
+📦 **Why it matters:** Low inventory = manufacturers competing for scarce supply = price rises
+"""
+
 # === HERO SECTION - LIVE PRICES ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 
-hero_col1, hero_col2 = st.columns(2)
+hero_col1, hero_col2, hero_col3 = st.columns(3)
 
 with hero_col1:
     if gold_price:
@@ -683,11 +728,36 @@ with hero_col2:
     else:
         st.error("Silver price unavailable")
 
+with hero_col3:
+    if copper_price:
+        pct_from_high = copper_ind.get('pct_from_52w_high', 0) if "error" not in copper_ind else 0
+        trend = copper_ind.get('trend', 'unknown') if "error" not in copper_ind else 'unknown'
+
+        st.markdown(f"""
+        <div class="metric-card metric-card-copper">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span style="color: #888; font-size: 0.9rem;">COPPER (HG/USD)</span>
+                    <h2 class="price-large price-copper">{format_price(copper_price)}/lb</h2>
+                    <span style="color: {'#00c853' if pct_from_high >= 0 else '#ff5252'}; font-size: 0.95rem;">
+                        {pct_from_high:+.2f}% from 52w high
+                    </span>
+                </div>
+                <div style="text-align: right;">
+                    {signal_badge(trend.upper(), trend)}
+                    <p style="color: #666; font-size: 0.8rem; margin-top: 8px;">Source: Gold-API</p>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.error("Copper price unavailable")
+
 # === AI VERDICT SECTION ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 st.markdown("### 🤖 AI Market Verdict")
 
-verdict_col1, verdict_col2 = st.columns(2)
+verdict_col1, verdict_col2, verdict_col3 = st.columns(3)
 
 with verdict_col1:
     if "error" not in gold_ind:
@@ -744,6 +814,35 @@ with verdict_col2:
 
         with st.expander("View Signal Breakdown"):
             for name, direction, desc in silver_verdict['signals']:
+                emoji = signal_emoji(direction)
+                st.write(f"{emoji} **{name}:** {desc}")
+
+with verdict_col3:
+    if "error" not in copper_ind:
+        copper_verdict = get_copper_verdict(copper_ind, copper_cot, copper_macro, copper_term)
+        verdict = copper_verdict["verdict"]
+        score = copper_verdict["net_score"]
+
+        if "BULLISH" in verdict:
+            verdict_class = "verdict-bullish"
+            verdict_color = "#00c853"
+        elif "BEARISH" in verdict:
+            verdict_class = "verdict-bearish"
+            verdict_color = "#ff1744"
+        else:
+            verdict_class = "verdict-neutral"
+            verdict_color = "#ffc107"
+
+        st.markdown(f"""
+        <div class="verdict-box {verdict_class}">
+            <p style="color: #888; font-size: 0.9rem; margin: 0;">COPPER</p>
+            <p class="verdict-text" style="color: {verdict_color};">{verdict}</p>
+            <p class="verdict-score">Score: {score:+d} | Bullish: {copper_verdict['bullish_signals']} | Bearish: {copper_verdict['bearish_signals']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.expander("View Signal Breakdown"):
+            for name, direction, desc in copper_verdict['signals']:
                 emoji = signal_emoji(direction)
                 st.write(f"{emoji} **{name}:** {desc}")
 
@@ -812,12 +911,80 @@ if "error" not in macro_data:
             st.metric("MOVE Index", f"{val:.1f}", f"{chg:+.1f}")
             st.caption(regime)
 
+# === COPPER-SPECIFIC MACRO (PMI) ===
+st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+st.markdown("### 🔶 Copper Macro Indicators")
+
+with st.expander("ℹ️ Understanding Copper Drivers", expanded=False):
+    st.markdown(COPPER_MACRO_GUIDE)
+
+if "error" not in copper_macro:
+    copper_indicators = copper_macro.get("indicators", {})
+
+    cm1, cm2, cm3 = st.columns(3)
+
+    with cm1:
+        china_pmi = copper_indicators.get("china_pmi", {})
+        if "error" not in china_pmi and china_pmi.get("value") is not None:
+            val = china_pmi.get("value", 0)
+            impact = china_pmi.get("copper_impact", "neutral")
+            regime = china_pmi.get("regime", "")
+            st.metric("China PMI", f"{val:.1f}")
+            st.caption(f"{regime}")
+            st.caption(f"Copper: {signal_emoji(impact)} {impact}")
+        else:
+            st.metric("China PMI", "N/A")
+            st.caption("Data unavailable")
+
+    with cm2:
+        us_pmi = copper_indicators.get("us_ism_pmi", {})
+        if "error" not in us_pmi and us_pmi.get("value") is not None:
+            val = us_pmi.get("value", 0)
+            impact = us_pmi.get("copper_impact", "neutral")
+            regime = us_pmi.get("regime", "")
+            st.metric("US ISM PMI", f"{val:.1f}")
+            st.caption(f"{regime}")
+            st.caption(f"Copper: {signal_emoji(impact)} {impact}")
+        else:
+            st.metric("US ISM PMI", "N/A")
+            st.caption("Data unavailable")
+
+    with cm3:
+        usd_cny = copper_indicators.get("usd_cny", {})
+        if "error" not in usd_cny and usd_cny.get("value") is not None:
+            val = usd_cny.get("value", 0)
+            chg = usd_cny.get("change", 0)
+            impact = usd_cny.get("copper_impact", "neutral")
+            st.metric("USD/CNY", f"{val:.4f}", f"{chg:+.2f}%", delta_color="inverse")
+            st.caption(f"Copper: {signal_emoji(impact)} {impact}")
+        else:
+            st.metric("USD/CNY", "N/A")
+            st.caption("Data unavailable")
+else:
+    st.warning("Copper macro data unavailable")
+
+# === LME INVENTORY LINKS ===
+st.markdown("#### 📦 LME Inventories (Check Manually)")
+
+with st.expander("ℹ️ Why Inventories Matter", expanded=False):
+    st.markdown(COPPER_INVENTORY_GUIDE)
+
+st.info("""
+**Pro Tip:** These aren't available via free APIs, but pros watch them closely:
+
+- **[LME Copper Stocks](https://www.lme.com/en/metals/non-ferrous/lme-copper#Trading+day+summary)** - London Metal Exchange warehouse stocks
+- **[COMEX Warehouse](https://www.cmegroup.com/delivery_reports/MetalsIssuesAndStopsReport.pdf)** - CME copper stocks report
+- **[SHFE Shanghai](https://www.shfe.com.cn/en/MarketData/DelWarehouse/)** - Shanghai Futures Exchange stocks
+
+**Reading the signal:** Falling inventories = Physical tightness = BULLISH | Rising inventories = Oversupply = BEARISH
+""")
+
 # === TECHNICAL ANALYSIS TABS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 st.markdown("### 📊 Technical Analysis")
 st.markdown('<p class="metal-selector-header">👇 Select a metal to view detailed analysis</p>', unsafe_allow_html=True)
 
-tab_gold, tab_silver = st.tabs(["🥇 GOLD", "🥈 SILVER"])
+tab_gold, tab_silver, tab_copper = st.tabs(["🥇 GOLD", "🥈 SILVER", "🔶 COPPER"])
 
 def render_technical_tab(ind, cot, term, metal_name):
     """Render technical analysis for a metal."""
@@ -952,12 +1119,15 @@ with tab_gold:
 with tab_silver:
     render_technical_tab(silver_ind, silver_cot, silver_term, "Silver")
 
+with tab_copper:
+    render_technical_tab(copper_ind, copper_cot, copper_term, "Copper")
+
 # === DETAILED AI ANALYSIS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 st.markdown("### 🧠 Detailed AI Analysis")
 st.caption("Click to generate a comprehensive AI-powered market analysis")
 
-ai_col1, ai_col2 = st.columns(2)
+ai_col1, ai_col2, ai_col3 = st.columns(3)
 
 with ai_col1:
     if st.button("🥇 Generate Gold Analysis", use_container_width=True, type="primary"):
@@ -985,15 +1155,31 @@ with ai_col2:
             else:
                 st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to .env file.")
 
+with ai_col3:
+    if st.button("🔶 Generate Copper Analysis", use_container_width=True, type="primary"):
+        with st.spinner("Claude is analyzing copper markets..."):
+            copper_analysis = generate_ai_summary(
+                "Copper", copper_price,
+                copper_ind if "error" not in copper_ind else {},
+                copper_cot, copper_macro, copper_term
+            )
+            if copper_analysis:
+                st.markdown(copper_analysis)
+            else:
+                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to .env file.")
+
 # === FOOTER ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 st.markdown(f'<p class="timestamp">Last updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} | Data may be delayed</p>', unsafe_allow_html=True)
 
 with st.expander("🔧 Debug: Raw API Responses"):
-    d1, d2 = st.columns(2)
+    d1, d2, d3 = st.columns(3)
     with d1:
         st.write("**Gold Raw:**")
         st.code(str(gold_raw)[:500] if gold_raw else "No data")
     with d2:
         st.write("**Silver Raw:**")
         st.code(str(silver_raw)[:500] if silver_raw else "No data")
+    with d3:
+        st.write("**Copper Raw:**")
+        st.code(str(copper_raw)[:500] if copper_raw else "No data")
