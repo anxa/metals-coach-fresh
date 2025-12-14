@@ -680,6 +680,35 @@ TERM_STRUCTURE_GUIDE = """
 **Backwardation (Spot > Futures):** RARE and strongly BULLISH - indicates physical shortage
 """
 
+FORWARD_EXPECTATIONS_GUIDE = """
+**What this shows:** Historical outcomes when the market was in this same state (regime + momentum + participation combination).
+
+**Key Metrics Explained:**
+
+| Term | Meaning | How to Use |
+|------|---------|------------|
+| **Mean Return** | Average % gain/loss over the period | +0.5% mean = historically gained 0.5% on average |
+| **Hit Rate** | % of times price went UP | 60% hit = price rose 60% of the time in this state |
+| **Typical Range** | One standard deviation around median | Most outcomes fall within this range |
+| **Observations** | Number of historical instances | More = more reliable (>50 is good) |
+| **Confidence** | Overall reliability score (0-100) | Based on sample size + consistency + edge strength |
+
+**Risk Metrics:**
+
+| Term | Meaning | How to Use |
+|------|---------|------------|
+| **Avg Drawdown** | Typical dip BEFORE gains materialize | -1.5% = expect 1.5% pullback even in winning trades |
+| **Risk/Reward** | Ratio of avg gain to avg drawdown | >1.0 = gains exceed typical pain; <1.0 = expect more pain than gain |
+
+**Interpreting Hit Rate:**
+- **>60%**: Strong directional edge - trade with confidence
+- **55-60%**: Modest edge - use for confirmation, not primary signal
+- **45-55%**: No edge - this state has no predictive value
+- **<45%**: Bearish edge - historically went DOWN more often
+
+**Important:** These are statistical tendencies, not predictions. A 60% hit rate means 40% of the time it went the other way!
+"""
+
 # Copper-specific guides
 COPPER_MACRO_GUIDE = """
 **China PMI (THE #1 DRIVER):** China consumes ~50% of global copper.
@@ -1015,6 +1044,9 @@ with pro_col3:
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 st.markdown("### 🎯 Forward Expectations")
 st.caption("Probabilistic outlook based on historical state outcomes. Not predictions - statistical tendencies.")
+
+with st.expander("ℹ️ Understanding Forward Expectations", expanded=False):
+    st.markdown(FORWARD_EXPECTATIONS_GUIDE)
 
 
 def get_direction_color(direction: str) -> tuple:
