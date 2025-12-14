@@ -25,6 +25,7 @@ from cot_fetcher import get_cot_summary
 from macro_fetcher import get_macro_dashboard, get_copper_macro
 from term_structure import analyze_term_structure
 from ai_summary import generate_ai_summary, get_quick_verdict, get_copper_verdict
+from market_regime import get_full_market_analysis
 
 # === PAGE CONFIG ===
 st.set_page_config(
@@ -577,6 +578,20 @@ with st.spinner(""):
             silver_term = {"error": str(e)}
             copper_term = {"error": str(e)}
 
+        progress.progress(95, text="Running professional analysis...")
+        # Professional regime analysis
+        try:
+            macro_bias = macro_data.get("macro_bias", "neutral") if "error" not in macro_data else "neutral"
+            gold_pro = get_full_market_analysis(gold_ind, macro_bias) if "error" not in gold_ind else {"error": "no data"}
+            silver_pro = get_full_market_analysis(silver_ind, macro_bias) if "error" not in silver_ind else {"error": "no data"}
+            # Copper uses its own macro (PMI-based)
+            copper_bias = copper_macro.get("macro_bias", "neutral") if "error" not in copper_macro else "neutral"
+            copper_pro = get_full_market_analysis(copper_ind, copper_bias) if "error" not in copper_ind else {"error": "no data"}
+        except Exception as e:
+            gold_pro = {"error": str(e)}
+            silver_pro = {"error": str(e)}
+            copper_pro = {"error": str(e)}
+
         progress.progress(100, text="Complete!")
         progress.empty()
 
@@ -845,6 +860,110 @@ with verdict_col3:
             for name, direction, desc in copper_verdict['signals']:
                 emoji = signal_emoji(direction)
                 st.write(f"{emoji} **{name}:** {desc}")
+
+# === PROFESSIONAL REGIME ANALYSIS ===
+st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+st.markdown("### 📈 Professional Market Analysis")
+st.caption("Trade transitions, not snapshots. What phase is the market in?")
+
+def render_pro_analysis(pro_data: dict, metal_name: str, color: str):
+    """Render professional regime analysis for a metal."""
+    if "error" in pro_data:
+        st.warning(f"{metal_name} analysis unavailable")
+        return
+
+    recommendation = pro_data.get("recommendation", {})
+    regime = pro_data.get("regime", {})
+    momentum = pro_data.get("momentum", {})
+    volume = pro_data.get("volume", {})
+    cycle = pro_data.get("cycle", {})
+
+    # Main summary box
+    action = recommendation.get("action", "HOLD")
+    summary = recommendation.get("summary", "Analysis unavailable")
+    confidence = recommendation.get("confidence", "moderate")
+
+    # Color based on action
+    if action in ["ADD"]:
+        box_color = "#00c853"
+        action_emoji = "🟢"
+    elif action in ["REDUCE", "TIGHTEN"]:
+        box_color = "#ff5252"
+        action_emoji = "🔴"
+    elif action in ["WAIT", "WATCH"]:
+        box_color = "#ffc107"
+        action_emoji = "🟡"
+    else:  # HOLD, DO NOTHING
+        box_color = "#607d8b"
+        action_emoji = "⚪"
+
+    st.markdown(f"""
+    <div style="background: linear-gradient(145deg, #1a2332 0%, #1e2940 100%);
+                border-radius: 12px; padding: 20px; border-left: 4px solid {color};
+                margin-bottom: 16px;">
+        <div style="color: #888; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">{metal_name}</div>
+        <div style="font-size: 1.1rem; color: #fff; margin: 8px 0; font-weight: 500;">{summary}</div>
+        <div style="display: flex; align-items: center; gap: 12px; margin-top: 12px;">
+            <span style="background: {box_color}; color: {'#000' if action in ['ADD'] else '#fff'};
+                        padding: 6px 16px; border-radius: 20px; font-weight: 600; font-size: 0.9rem;">
+                {action_emoji} {action}
+            </span>
+            <span style="color: #888; font-size: 0.85rem;">Confidence: {confidence}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Detailed breakdown in expander
+    with st.expander(f"View {metal_name} Details"):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # Regime
+            regime_type = regime.get("regime", "unknown")
+            regime_conf = regime.get("confidence", "low")
+            st.markdown(f"**Regime:** {regime_type} ({regime_conf} confidence)")
+            st.caption(regime.get("description", ""))
+            if regime.get("pct_from_200sma") is not None:
+                st.caption(f"Price vs 200 SMA: {regime.get('pct_from_200sma', 0):+.1f}%")
+
+            # Momentum Phase
+            st.markdown("---")
+            phase = momentum.get("phase", "unknown")
+            risk = momentum.get("risk_level", "unknown")
+            st.markdown(f"**Momentum:** {phase}")
+            st.caption(momentum.get("description", ""))
+            st.caption(f"Risk level: {risk}")
+
+        with col2:
+            # Volume
+            vol_conf = volume.get("confirmation", "unknown")
+            st.markdown(f"**Volume:** {vol_conf}")
+            st.caption(volume.get("description", ""))
+            st.caption(f"Participation: {volume.get('participation', 'unknown')}")
+
+            # Cycle Position
+            st.markdown("---")
+            cycle_pos = cycle.get("position", "unknown")
+            st.markdown(f"**Cycle Position:** {cycle_pos}")
+            st.caption(cycle.get("description", ""))
+            st.caption(f"Risk/Reward: {cycle.get('risk_reward', 'unknown')}")
+
+        # Reasoning
+        st.markdown("---")
+        st.markdown("**Analysis Reasoning:**")
+        for reason in recommendation.get("reasoning", []):
+            st.write(f"• {reason}")
+
+pro_col1, pro_col2, pro_col3 = st.columns(3)
+
+with pro_col1:
+    render_pro_analysis(gold_pro, "GOLD", "#FFD700")
+
+with pro_col2:
+    render_pro_analysis(silver_pro, "SILVER", "#C0C0C0")
+
+with pro_col3:
+    render_pro_analysis(copper_pro, "COPPER", "#B87333")
 
 # === MACRO DRIVERS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
@@ -1169,7 +1288,8 @@ with ai_col1:
             gold_analysis = generate_ai_summary(
                 "Gold", gold_price,
                 gold_ind if "error" not in gold_ind else {},
-                gold_cot, macro_data, gold_term
+                gold_cot, macro_data, gold_term,
+                gold_pro if "error" not in gold_pro else None
             )
             if gold_analysis:
                 st.markdown(gold_analysis)
@@ -1182,7 +1302,8 @@ with ai_col2:
             silver_analysis = generate_ai_summary(
                 "Silver", silver_price,
                 silver_ind if "error" not in silver_ind else {},
-                silver_cot, macro_data, silver_term
+                silver_cot, macro_data, silver_term,
+                silver_pro if "error" not in silver_pro else None
             )
             if silver_analysis:
                 st.markdown(silver_analysis)
@@ -1195,7 +1316,8 @@ with ai_col3:
             copper_analysis = generate_ai_summary(
                 "Copper", copper_price,
                 copper_ind if "error" not in copper_ind else {},
-                copper_cot, copper_macro, copper_term
+                copper_cot, copper_macro, copper_term,
+                copper_pro if "error" not in copper_pro else None
             )
             if copper_analysis:
                 st.markdown(copper_analysis)

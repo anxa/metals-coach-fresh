@@ -30,6 +30,7 @@ def build_market_context(
     cot: Dict[str, Any],
     macro: Dict[str, Any],
     term_structure: Dict[str, Any],
+    pro_analysis: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Build a structured context string with all market data."""
 
@@ -151,6 +152,39 @@ def build_market_context(
     else:
         lines.append("\nTERM STRUCTURE: Data unavailable")
 
+    # Professional Market Regime Analysis
+    if pro_analysis and "error" not in pro_analysis:
+        lines.append("\nPROFESSIONAL REGIME ANALYSIS:")
+
+        regime = pro_analysis.get("regime", {})
+        lines.append(f"  Market Regime: {regime.get('regime', 'unknown')} ({regime.get('confidence', 'low')} confidence)")
+        lines.append(f"  Regime Description: {regime.get('description', '')}")
+        lines.append(f"  Price vs 200 SMA: {regime.get('pct_from_200sma', 0):+.1f}%")
+
+        momentum = pro_analysis.get("momentum", {})
+        lines.append(f"\n  Momentum Phase: {momentum.get('phase', 'unknown')}")
+        lines.append(f"  Momentum Risk Level: {momentum.get('risk_level', 'unknown')}")
+        lines.append(f"  Momentum Description: {momentum.get('description', '')}")
+        if momentum.get('diverging'):
+            lines.append(f"  ⚠️ DIVERGENCE: {momentum.get('divergence_type', 'unknown').upper()}")
+
+        volume = pro_analysis.get("volume", {})
+        lines.append(f"\n  Volume Confirmation: {volume.get('confirmation', 'unknown')}")
+        lines.append(f"  Volume Description: {volume.get('description', '')}")
+        lines.append(f"  Participation: {volume.get('participation', 'unknown')}")
+
+        cycle = pro_analysis.get("cycle", {})
+        lines.append(f"\n  Cycle Position: {cycle.get('position', 'unknown')}")
+        lines.append(f"  Cycle Description: {cycle.get('description', '')}")
+        lines.append(f"  Risk/Reward: {cycle.get('risk_reward', 'unknown')}")
+
+        rec = pro_analysis.get("recommendation", {})
+        lines.append(f"\n  PRO RECOMMENDATION: {rec.get('action', 'HOLD')}")
+        lines.append(f"  Confidence: {rec.get('confidence', 'moderate')}")
+        lines.append(f"  Summary: {rec.get('summary', '')}")
+        for reason in rec.get('reasoning', []):
+            lines.append(f"    - {reason}")
+
     return "\n".join(lines)
 
 
@@ -161,6 +195,7 @@ def generate_ai_summary(
     cot: Dict[str, Any],
     macro: Dict[str, Any],
     term_structure: Dict[str, Any],
+    pro_analysis: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     """
     Generate an AI-powered market summary using Claude.
@@ -173,7 +208,7 @@ def generate_ai_summary(
         return None
 
     # Build context
-    context = build_market_context(metal, spot_price, indicators, cot, macro, term_structure)
+    context = build_market_context(metal, spot_price, indicators, cot, macro, term_structure, pro_analysis)
 
     prompt = f"""You are an expert precious metals analyst and trading coach. Analyze the following market data for {metal} and provide an educational summary.
 
