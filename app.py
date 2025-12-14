@@ -1030,74 +1030,6 @@ if "error" not in macro_data:
             st.metric("MOVE Index", f"{val:.1f}", f"{chg:+.1f}")
             st.caption(regime)
 
-# === COPPER-SPECIFIC MACRO (PMI) ===
-st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-st.markdown("### 🔶 Copper Macro Indicators")
-
-with st.expander("ℹ️ Understanding Copper Drivers", expanded=False):
-    st.markdown(COPPER_MACRO_GUIDE)
-
-if "error" not in copper_macro:
-    copper_indicators = copper_macro.get("indicators", {})
-
-    cm1, cm2, cm3 = st.columns(3)
-
-    with cm1:
-        china_pmi = copper_indicators.get("china_pmi", {})
-        if "error" not in china_pmi and china_pmi.get("value") is not None:
-            val = china_pmi.get("value", 0)
-            impact = china_pmi.get("copper_impact", "neutral")
-            regime = china_pmi.get("regime", "")
-            st.metric("China PMI", f"{val:.1f}")
-            st.caption(f"{regime}")
-            st.caption(f"Copper: {signal_emoji(impact)} {impact}")
-        else:
-            st.metric("China PMI", "N/A")
-            st.caption("Data unavailable")
-
-    with cm2:
-        us_pmi = copper_indicators.get("us_ism_pmi", {})
-        if "error" not in us_pmi and us_pmi.get("value") is not None:
-            val = us_pmi.get("value", 0)
-            impact = us_pmi.get("copper_impact", "neutral")
-            regime = us_pmi.get("regime", "")
-            st.metric("US ISM PMI", f"{val:.1f}")
-            st.caption(f"{regime}")
-            st.caption(f"Copper: {signal_emoji(impact)} {impact}")
-        else:
-            st.metric("US ISM PMI", "N/A")
-            st.caption("Data unavailable")
-
-    with cm3:
-        usd_cny = copper_indicators.get("usd_cny", {})
-        if "error" not in usd_cny and usd_cny.get("value") is not None:
-            val = usd_cny.get("value", 0)
-            chg = usd_cny.get("change", 0)
-            impact = usd_cny.get("copper_impact", "neutral")
-            st.metric("USD/CNY", f"{val:.4f}", f"{chg:+.2f}%", delta_color="inverse")
-            st.caption(f"Copper: {signal_emoji(impact)} {impact}")
-        else:
-            st.metric("USD/CNY", "N/A")
-            st.caption("Data unavailable")
-else:
-    st.warning("Copper macro data unavailable")
-
-# === LME INVENTORY LINKS ===
-st.markdown("#### 📦 LME Inventories (Check Manually)")
-
-with st.expander("ℹ️ Why Inventories Matter", expanded=False):
-    st.markdown(COPPER_INVENTORY_GUIDE)
-
-st.info("""
-**Pro Tip:** These aren't available via free APIs, but pros watch them closely:
-
-- **[LME Copper Stocks](https://www.lme.com/en/metals/non-ferrous/lme-copper#Trading+day+summary)** - London Metal Exchange warehouse stocks
-- **[COMEX Warehouse](https://www.cmegroup.com/delivery_reports/MetalsIssuesAndStopsReport.pdf)** - CME copper stocks report
-- **[SHFE Shanghai](https://www.shfe.com.cn/en/MarketData/DelWarehouse/)** - Shanghai Futures Exchange stocks
-
-**Reading the signal:** Falling inventories = Physical tightness = BULLISH | Rising inventories = Oversupply = BEARISH
-""")
-
 # === TECHNICAL ANALYSIS TABS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 st.markdown("### 📊 Technical Analysis")
@@ -1277,6 +1209,71 @@ with tab_silver:
 
 with tab_copper:
     render_technical_tab(copper_ind, copper_cot, copper_term, "Copper")
+
+    # Copper-specific macro indicators
+    st.markdown("#### 🔶 Copper Macro Drivers")
+    with st.expander("ℹ️ Understanding Copper Drivers", expanded=False):
+        st.markdown(COPPER_MACRO_GUIDE)
+
+    if "error" not in copper_macro:
+        copper_indicators = copper_macro.get("indicators", {})
+
+        cm1, cm2, cm3 = st.columns(3)
+
+        with cm1:
+            china_pmi = copper_indicators.get("china_pmi", {})
+            if "error" not in china_pmi and china_pmi.get("value") is not None:
+                val = china_pmi.get("value", 0)
+                impact = china_pmi.get("copper_impact", "neutral")
+                regime = china_pmi.get("regime", "")
+                st.metric("China PMI", f"{val:.1f}")
+                st.caption(f"{regime}")
+                st.caption(f"Copper: {signal_emoji(impact)} {impact}")
+            else:
+                st.metric("China PMI", "N/A")
+                st.caption("Data unavailable")
+
+        with cm2:
+            us_pmi = copper_indicators.get("us_ism_pmi", {})
+            if "error" not in us_pmi and us_pmi.get("value") is not None:
+                val = us_pmi.get("value", 0)
+                impact = us_pmi.get("copper_impact", "neutral")
+                regime = us_pmi.get("regime", "")
+                st.metric("US ISM PMI", f"{val:.1f}")
+                st.caption(f"{regime}")
+                st.caption(f"Copper: {signal_emoji(impact)} {impact}")
+            else:
+                st.metric("US ISM PMI", "N/A")
+                st.caption("Data unavailable")
+
+        with cm3:
+            usd_cny = copper_indicators.get("usd_cny", {})
+            if "error" not in usd_cny and usd_cny.get("value") is not None:
+                val = usd_cny.get("value", 0)
+                chg = usd_cny.get("change", 0)
+                impact = usd_cny.get("copper_impact", "neutral")
+                st.metric("USD/CNY", f"{val:.4f}", f"{chg:+.2f}%", delta_color="inverse")
+                st.caption(f"Copper: {signal_emoji(impact)} {impact}")
+            else:
+                st.metric("USD/CNY", "N/A")
+                st.caption("Data unavailable")
+    else:
+        st.warning("Copper macro data unavailable")
+
+    # LME Inventory links
+    st.markdown("#### 📦 LME Inventories (Check Manually)")
+    with st.expander("ℹ️ Why Inventories Matter", expanded=False):
+        st.markdown(COPPER_INVENTORY_GUIDE)
+
+    st.info("""
+**Pro Tip:** These aren't available via free APIs, but pros watch them closely:
+
+- **[LME Copper Stocks](https://www.lme.com/en/metals/non-ferrous/lme-copper#Trading+day+summary)** - London Metal Exchange warehouse stocks
+- **[COMEX Warehouse](https://www.cmegroup.com/delivery_reports/MetalsIssuesAndStopsReport.pdf)** - CME copper stocks report
+- **[SHFE Shanghai](https://www.shfe.com.cn/en/MarketData/DelWarehouse/)** - Shanghai Futures Exchange stocks
+
+**Reading the signal:** Falling inventories = Physical tightness = BULLISH | Rising inventories = Oversupply = BEARISH
+""")
 
 # === DETAILED AI ANALYSIS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
