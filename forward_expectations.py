@@ -17,9 +17,54 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
-from backtest_runner import encode_state_hash
-
 DATA_DIR = Path(__file__).resolve().parent / "data"
+
+
+def encode_state_hash(
+    regime: str,
+    momentum: str,
+    participation: str,
+    tailwind: str = None,
+    positioning: str = None,
+    include_all: bool = False
+) -> str:
+    """
+    Create a unique hash for a state combination.
+
+    For MVP, we focus on the 3 technical pillars (regime, momentum, participation)
+    since macro and positioning use neutral defaults in backtest.
+    """
+    regime_code = {
+        "uptrend": "u", "downtrend": "d", "range": "r", "unknown": "x"
+    }
+    momentum_code = {
+        "accelerating": "a", "cooling": "c", "diverging": "v", "steady": "s", "unknown": "x"
+    }
+    participation_code = {
+        "confirming": "c", "thinning": "t", "distribution": "d",
+        "accumulation": "a", "neutral": "n", "unknown": "x"
+    }
+
+    r = regime_code.get(regime.lower() if regime else "unknown", "x")
+    m = momentum_code.get(momentum.lower() if momentum else "unknown", "x")
+    p = participation_code.get(participation.lower() if participation else "unknown", "x")
+
+    # MVP: 3-pillar hash
+    base_hash = f"R{r}_M{m}_P{p}"
+
+    if include_all and tailwind and positioning:
+        tailwind_code = {
+            "supportive": "s", "hostile": "h", "mixed": "m", "neutral": "n", "unknown": "x"
+        }
+        positioning_code_full = {
+            "crowded_long": "cl", "washed_out": "wo", "elevated_long": "el",
+            "light_positioning": "lp", "neutral": "n", "unknown": "u"
+        }
+        t = tailwind_code.get(tailwind.lower() if tailwind else "unknown", "x")
+        pos = positioning_code_full.get(positioning.lower() if positioning else "unknown", "x")
+        return f"{base_hash}_T{t}_C{pos}"
+
+    return base_hash
 
 
 def load_aggregated_stats(metal: str) -> Optional[pd.DataFrame]:
