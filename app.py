@@ -27,6 +27,10 @@ from term_structure import analyze_term_structure
 from ai_summary import generate_ai_summary, get_quick_verdict, get_copper_verdict
 from market_regime import get_full_market_analysis, get_five_pillar_analysis
 from forward_expectations import get_forward_expectations
+from prediction_tracker import (
+    auto_log_daily, update_actuals, get_accuracy_stats,
+    get_recent_predictions, get_pending_count, is_market_closed
+)
 
 # === PAGE CONFIG ===
 st.set_page_config(
@@ -612,6 +616,31 @@ with st.spinner(""):
         progress.progress(100, text="Complete!")
         progress.empty()
 
+# === AUTO-LOG PREDICTIONS ===
+# Automatically log daily predictions after market close (4pm ET)
+try:
+    if "error" not in gold_five and "error" not in silver_five:
+        # Compute forward expectations for logging
+        gold_exp = get_forward_expectations(gold_five, "gold")
+        silver_exp = get_forward_expectations(silver_five, "silver")
+
+        # Auto-log today's predictions (only if after market close)
+        auto_log_daily(
+            gold_five=gold_five,
+            gold_exp=gold_exp,
+            gold_price=gold_price,
+            gold_indicators=gold_ind,
+            silver_five=silver_five,
+            silver_exp=silver_exp,
+            silver_price=silver_price,
+            silver_indicators=silver_ind
+        )
+
+        # Update any pending actuals
+        update_actuals()
+except Exception as e:
+    pass  # Silent fail - don't block app if prediction tracking fails
+
 # === EDUCATIONAL CONTENT ===
 PRICE_LEVELS_GUIDE = """
 **Why it matters:** Price levels show where the market is relative to historical extremes.
@@ -1160,6 +1189,133 @@ with fwd_col2:
 with fwd_col3:
     # Copper doesn't have backtest data yet
     st.info("Copper forward expectations require backtest data")
+
+# === PREDICTION TRACKING ===
+st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+st.markdown("### 📝 Prediction Tracking")
+
+# Status bar
+try:
+    pending = get_pending_count()
+    stats = get_accuracy_stats()
+    market_status = "After market close" if is_market_closed() else "Market open - logging at 4pm ET"
+
+    status_col1, status_col2, status_col3 = st.columns(3)
+    with status_col1:
+        st.caption(f"📊 Total predictions: {stats['total_predictions']}")
+    with status_col2:
+        st.caption(f"⏳ Pending actuals: 5d={pending['pending_5d']} | 20d={pending['pending_20d']}")
+    with status_col3:
+        st.caption(f"🕐 {market_status}")
+except Exception:
+    st.caption("Prediction tracking initializing...")
+
+with st.expander("📊 Prediction Accuracy Dashboard", expanded=False):
+    try:
+        stats = get_accuracy_stats()
+
+        if stats["total_predictions"] == 0:
+            st.info("No predictions logged yet. Predictions are automatically logged after market close (4pm ET).")
+        else:
+            # Overall stats
+            st.markdown("**Overall Accuracy:**")
+            acc_col1, acc_col2, acc_col3, acc_col4 = st.columns(4)
+
+            with acc_col1:
+                acc_5d = stats.get("accuracy_5d")
+                if acc_5d is not None:
+                    color = "#00c853" if acc_5d >= 50 else "#ff5252"
+                    st.markdown(f"""
+                    <div style="background: #1a2332; border-radius: 8px; padding: 12px; text-align: center;">
+                        <div style="color: #888; font-size: 0.75rem;">5-DAY ACCURACY</div>
+                        <div style="font-size: 1.5rem; color: {color}; font-weight: bold;">{acc_5d:.0f}%</div>
+                        <div style="color: #666; font-size: 0.7rem;">{stats['predictions_with_5d_actuals']} measured</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.metric("5-Day Accuracy", "N/A", help="Need at least 5 days of data")
+
+            with acc_col2:
+                acc_20d = stats.get("accuracy_20d")
+                if acc_20d is not None:
+                    color = "#00c853" if acc_20d >= 50 else "#ff5252"
+                    st.markdown(f"""
+                    <div style="background: #1a2332; border-radius: 8px; padding: 12px; text-align: center;">
+                        <div style="color: #888; font-size: 0.75rem;">20-DAY ACCURACY</div>
+                        <div style="font-size: 1.5rem; color: {color}; font-weight: bold;">{acc_20d:.0f}%</div>
+                        <div style="color: #666; font-size: 0.7rem;">{stats['predictions_with_20d_actuals']} measured</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.metric("20-Day Accuracy", "N/A", help="Need at least 20 days of data")
+
+            with acc_col3:
+                inv_rate = stats.get("invalidation_rate")
+                if inv_rate is not None:
+                    st.markdown(f"""
+                    <div style="background: #1a2332; border-radius: 8px; padding: 12px; text-align: center;">
+                        <div style="color: #888; font-size: 0.75rem;">INVALIDATION RATE</div>
+                        <div style="font-size: 1.5rem; color: #ffc107; font-weight: bold;">{inv_rate:.0f}%</div>
+                        <div style="color: #666; font-size: 0.7rem;">hit stop before target</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.metric("Invalidation Rate", "N/A")
+
+            with acc_col4:
+                acc_excl = stats.get("accuracy_excluding_invalidated")
+                if acc_excl is not None:
+                    color = "#00c853" if acc_excl >= 50 else "#ff5252"
+                    st.markdown(f"""
+                    <div style="background: #1a2332; border-radius: 8px; padding: 12px; text-align: center;">
+                        <div style="color: #888; font-size: 0.75rem;">ACCURACY (EXCL. INVALIDATED)</div>
+                        <div style="font-size: 1.5rem; color: {color}; font-weight: bold;">{acc_excl:.0f}%</div>
+                        <div style="color: #666; font-size: 0.7rem;">20d without stops hit</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.metric("Acc. (excl. inv.)", "N/A")
+
+            # Recent predictions table
+            st.markdown("---")
+            st.markdown("**Recent Predictions:**")
+            recent = get_recent_predictions(10)
+
+            if not recent.empty:
+                # Format for display
+                display_df = recent.copy()
+                display_df["date"] = display_df["date"].dt.strftime("%Y-%m-%d")
+                display_df["spot_price"] = display_df["spot_price"].apply(lambda x: f"${x:,.2f}" if x else "N/A")
+                display_df["exp_5d_mean"] = display_df["exp_5d_mean"].apply(lambda x: f"{x:+.2f}%" if pd.notna(x) else "N/A")
+                display_df["actual_5d_return"] = display_df["actual_5d_return"].apply(lambda x: f"{x:+.2f}%" if pd.notna(x) else "pending")
+                display_df["direction_correct_5d"] = display_df["direction_correct_5d"].apply(
+                    lambda x: "✅" if x == True else ("❌" if x == False else "⏳")
+                )
+                display_df["was_invalidated"] = display_df["was_invalidated"].apply(
+                    lambda x: "🛑 Yes" if x == True else ("No" if x == False else "⏳")
+                )
+
+                # Rename columns for display
+                display_df = display_df.rename(columns={
+                    "date": "Date",
+                    "metal": "Metal",
+                    "spot_price": "Price",
+                    "regime": "Regime",
+                    "exp_5d_mean": "Exp 5D",
+                    "actual_5d_return": "Actual 5D",
+                    "direction_correct_5d": "Correct?",
+                    "was_invalidated": "Invalidated?"
+                })
+
+                st.dataframe(
+                    display_df[["Date", "Metal", "Price", "Regime", "Exp 5D", "Actual 5D", "Correct?", "Invalidated?"]],
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("No predictions to display yet.")
+    except Exception as e:
+        st.error(f"Error loading accuracy data: {str(e)}")
 
 # === MACRO DRIVERS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
