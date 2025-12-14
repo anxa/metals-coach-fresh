@@ -1039,26 +1039,60 @@ def render_technical_tab(ind, cot, term, metal_name):
     col3, col4 = st.columns(2)
 
     with col3:
-        st.markdown("#### ⚡ Momentum")
+        st.markdown("#### ⚡ Momentum Signals")
         with st.expander("ℹ️ What to look for"):
             st.markdown(MOMENTUM_GUIDE)
 
-        rsi = ind.get('rsi14')
-        rsi_signal = "overbought" if rsi and rsi > 70 else "oversold" if rsi and rsi < 30 else "neutral"
-        macd_cross = ind.get('macd_crossover', 'unknown')
-        macd_slope = ind.get('macd_histogram_slope', 'unknown')
-        obv_trend = ind.get('obv_trend', 'unknown')
+        # RSI with trajectory analysis
+        rsi_val = ind.get('rsi14')
+        rsi_momentum = ind.get('rsi_momentum', {})
+        rsi_signal_type = rsi_momentum.get('signal_type', 'neutral')
+        rsi_action = rsi_momentum.get('signal', 'N/A')
+
+        # MACD with trajectory analysis
+        macd_momentum = ind.get('macd_momentum', {})
+        macd_signal_type = macd_momentum.get('signal_type', 'neutral')
+        macd_action = macd_momentum.get('signal', 'N/A')
+
+        # OBV with divergence detection
+        obv_momentum = ind.get('obv_momentum', {})
+        obv_signal_type = obv_momentum.get('signal_type', 'neutral')
+        obv_action = obv_momentum.get('signal', 'N/A')
+        obv_divergence = obv_momentum.get('divergence')
+
         vol_ratio = ind.get('volume_ratio')
         vol_signal = ind.get('volume_signal', 'N/A')
 
-        st.markdown(f"""
-        | Indicator | Value | Signal |
-        |-----------|-------|--------|
-        | **RSI(14)** | {format_number(rsi, 1)} | {signal_emoji(rsi_signal)} {rsi_signal} |
-        | **MACD** | {macd_cross} | {signal_emoji(macd_cross)} histogram {macd_slope} |
-        | **OBV** | - | {signal_emoji(obv_trend)} {obv_trend} |
-        | **Volume** | {format_number(vol_ratio, 2) if vol_ratio else 'N/A'}x avg | {vol_signal} |
-        """)
+        # RSI Section
+        st.markdown(f"**RSI(14):** {format_number(rsi_val, 1)}")
+        if "error" not in rsi_momentum:
+            rsi_change = rsi_momentum.get('change', 0)
+            rsi_dir = "↑" if rsi_change > 0 else "↓" if rsi_change < 0 else "→"
+            st.caption(f"{rsi_dir} {abs(rsi_change):.1f} pts (5-day)")
+            st.markdown(f"{signal_emoji(rsi_signal_type)} {rsi_action}", unsafe_allow_html=True)
+        st.markdown("---")
+
+        # MACD Section
+        st.markdown(f"**MACD:** {ind.get('macd_crossover', 'N/A')}")
+        if "error" not in macd_momentum:
+            hist_status = macd_momentum.get('histogram_status', 'unknown')
+            crossover = macd_momentum.get('crossover_detected', False)
+            if crossover:
+                bars = macd_momentum.get('bars_since_crossover', 0)
+                st.caption(f"Crossover {bars} bar(s) ago")
+            st.markdown(f"{signal_emoji(macd_signal_type)} {macd_action}", unsafe_allow_html=True)
+        st.markdown("---")
+
+        # OBV Section
+        st.markdown(f"**OBV:** {ind.get('obv_trend', 'N/A')}")
+        if "error" not in obv_momentum:
+            if obv_divergence:
+                st.warning(f"⚠️ {obv_divergence.upper()} DIVERGENCE DETECTED")
+            st.markdown(f"{signal_emoji(obv_signal_type)} {obv_action}", unsafe_allow_html=True)
+        st.markdown("---")
+
+        # Volume
+        st.markdown(f"**Volume:** {format_number(vol_ratio, 2) if vol_ratio else 'N/A'}x avg ({vol_signal})")
 
     with col4:
         st.markdown("#### 🏦 COT Positioning")

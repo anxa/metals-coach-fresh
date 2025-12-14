@@ -107,6 +107,305 @@ def histogram_slope(histogram: pd.Series, lookback: int = 3) -> str:
     return "flat"
 
 
+def analyze_rsi_momentum(rsi_series: pd.Series, lookback: int = 5) -> Dict[str, Any]:
+    """
+    Analyze RSI trajectory to give actionable signals.
+
+    Returns:
+        Dict with:
+        - current: current RSI value
+        - previous: RSI value N bars ago
+        - change: RSI change over lookback period
+        - zone: "overbought", "oversold", or "neutral"
+        - direction: "rising", "falling", or "flat"
+        - signal: actionable signal like "WAIT - RSI falling from overbought"
+    """
+    recent = rsi_series.dropna().iloc[-lookback:]
+    if len(recent) < 2:
+        return {"error": "insufficient data"}
+
+    current = float(recent.iloc[-1])
+    previous = float(recent.iloc[0])
+    change = current - previous
+
+    # Determine zone
+    if current > 70:
+        zone = "overbought"
+    elif current < 30:
+        zone = "oversold"
+    else:
+        zone = "neutral"
+
+    # Determine direction (with threshold to avoid noise)
+    if change > 3:
+        direction = "rising"
+    elif change < -3:
+        direction = "falling"
+    else:
+        direction = "flat"
+
+    # Generate actionable signal
+    signal = ""
+    signal_type = "neutral"
+
+    if zone == "overbought":
+        if direction == "falling":
+            signal = "WAIT - RSI falling from overbought, potential pullback"
+            signal_type = "bearish"
+        elif direction == "rising":
+            signal = "CAUTION - RSI rising in overbought zone, extended"
+            signal_type = "bearish"
+        else:
+            signal = "WATCH - RSI holding overbought, momentum may fade"
+            signal_type = "neutral"
+    elif zone == "oversold":
+        if direction == "rising":
+            signal = "BUY SIGNAL - RSI rising from oversold, recovery underway"
+            signal_type = "bullish"
+        elif direction == "falling":
+            signal = "WAIT - RSI still falling in oversold, not yet bottomed"
+            signal_type = "neutral"
+        else:
+            signal = "WATCH - RSI holding oversold, potential bounce setup"
+            signal_type = "bullish"
+    else:  # neutral zone
+        if direction == "rising" and current > 50:
+            signal = "BULLISH - RSI rising with positive momentum"
+            signal_type = "bullish"
+        elif direction == "falling" and current < 50:
+            signal = "BEARISH - RSI falling with negative momentum"
+            signal_type = "bearish"
+        elif direction == "rising":
+            signal = "IMPROVING - RSI turning up from low levels"
+            signal_type = "bullish"
+        elif direction == "falling":
+            signal = "WEAKENING - RSI turning down from high levels"
+            signal_type = "bearish"
+        else:
+            signal = "NEUTRAL - RSI flat, wait for direction"
+            signal_type = "neutral"
+
+    return {
+        "current": current,
+        "previous": previous,
+        "change": change,
+        "zone": zone,
+        "direction": direction,
+        "signal": signal,
+        "signal_type": signal_type,
+    }
+
+
+def analyze_macd_momentum(macd_data: Dict[str, pd.Series], lookback: int = 5) -> Dict[str, Any]:
+    """
+    Analyze MACD trajectory to give actionable signals.
+
+    Looks at:
+    - MACD/Signal crossover timing (recent vs old)
+    - Histogram expansion/contraction
+    - Zero-line position
+
+    Returns actionable trading signals.
+    """
+    macd_line = macd_data["macd"].dropna()
+    signal_line = macd_data["signal"].dropna()
+    histogram = macd_data["histogram"].dropna()
+
+    if len(histogram) < lookback + 1:
+        return {"error": "insufficient data"}
+
+    current_macd = float(macd_line.iloc[-1])
+    current_signal = float(signal_line.iloc[-1])
+    current_hist = float(histogram.iloc[-1])
+    prev_hist = float(histogram.iloc[-lookback])
+
+    # Check for recent crossover (within last N bars)
+    crossover_detected = False
+    crossover_type = None
+    bars_since_crossover = None
+
+    for i in range(1, min(lookback + 1, len(macd_line))):
+        prev_macd = macd_line.iloc[-(i+1)]
+        prev_signal = signal_line.iloc[-(i+1)]
+        curr_macd = macd_line.iloc[-i]
+        curr_signal = signal_line.iloc[-i]
+
+        # Bullish crossover: MACD crosses above signal
+        if prev_macd <= prev_signal and curr_macd > curr_signal:
+            crossover_detected = True
+            crossover_type = "bullish"
+            bars_since_crossover = i
+            break
+        # Bearish crossover: MACD crosses below signal
+        elif prev_macd >= prev_signal and curr_macd < curr_signal:
+            crossover_detected = True
+            crossover_type = "bearish"
+            bars_since_crossover = i
+            break
+
+    # Histogram analysis
+    hist_change = current_hist - prev_hist
+    if current_hist > 0:
+        if hist_change > 0:
+            histogram_status = "expanding_bullish"
+        else:
+            histogram_status = "contracting_bullish"
+    else:
+        if hist_change < 0:
+            histogram_status = "expanding_bearish"
+        else:
+            histogram_status = "contracting_bearish"
+
+    # Zero-line analysis
+    above_zero = current_macd > 0
+
+    # Generate actionable signal
+    signal = ""
+    signal_type = "neutral"
+
+    if crossover_detected and bars_since_crossover <= 3:
+        if crossover_type == "bullish":
+            if above_zero:
+                signal = "STRONG BUY - Fresh bullish crossover above zero line"
+                signal_type = "bullish"
+            else:
+                signal = "BUY SIGNAL - Bullish crossover, momentum turning"
+                signal_type = "bullish"
+        else:
+            if not above_zero:
+                signal = "STRONG SELL - Fresh bearish crossover below zero line"
+                signal_type = "bearish"
+            else:
+                signal = "SELL SIGNAL - Bearish crossover, momentum fading"
+                signal_type = "bearish"
+    elif histogram_status == "expanding_bullish":
+        signal = "BULLISH - Histogram expanding, momentum building"
+        signal_type = "bullish"
+    elif histogram_status == "expanding_bearish":
+        signal = "BEARISH - Histogram expanding downward, selling pressure"
+        signal_type = "bearish"
+    elif histogram_status == "contracting_bullish":
+        signal = "CAUTION - Bullish momentum fading, watch for reversal"
+        signal_type = "neutral"
+    elif histogram_status == "contracting_bearish":
+        signal = "IMPROVING - Bearish momentum fading, potential bottom"
+        signal_type = "neutral"
+
+    return {
+        "macd": current_macd,
+        "signal_line": current_signal,
+        "histogram": current_hist,
+        "histogram_change": hist_change,
+        "histogram_status": histogram_status,
+        "above_zero": above_zero,
+        "crossover_detected": crossover_detected,
+        "crossover_type": crossover_type,
+        "bars_since_crossover": bars_since_crossover,
+        "signal": signal,
+        "signal_type": signal_type,
+    }
+
+
+def analyze_obv_momentum(close: pd.Series, obv_series: pd.Series, lookback: int = 10) -> Dict[str, Any]:
+    """
+    Analyze OBV trajectory and detect divergences.
+
+    Divergences:
+    - Bullish divergence: Price making lower lows, OBV making higher lows (accumulation)
+    - Bearish divergence: Price making higher highs, OBV making lower highs (distribution)
+
+    Returns actionable signals.
+    """
+    if len(close) < lookback + 5 or len(obv_series) < lookback + 5:
+        return {"error": "insufficient data"}
+
+    recent_close = close.iloc[-lookback:]
+    recent_obv = obv_series.iloc[-lookback:]
+    prev_close = close.iloc[-(lookback*2):-lookback]
+    prev_obv = obv_series.iloc[-(lookback*2):-lookback]
+
+    # Calculate trend direction
+    current_obv = float(obv_series.iloc[-1])
+    obv_change = float(recent_obv.iloc[-1] - recent_obv.iloc[0])
+    price_change = float(recent_close.iloc[-1] - recent_close.iloc[0])
+
+    # Determine OBV trend
+    obv_sma = obv_series.rolling(20).mean()
+    if len(obv_sma.dropna()) > 0:
+        obv_vs_sma = "above" if current_obv > obv_sma.iloc[-1] else "below"
+    else:
+        obv_vs_sma = "unknown"
+
+    # Check for divergence
+    # Compare recent highs/lows of price vs OBV
+    price_recent_high = recent_close.max()
+    price_prev_high = prev_close.max() if len(prev_close) > 0 else price_recent_high
+    obv_recent_high = recent_obv.max()
+    obv_prev_high = prev_obv.max() if len(prev_obv) > 0 else obv_recent_high
+
+    price_recent_low = recent_close.min()
+    price_prev_low = prev_close.min() if len(prev_close) > 0 else price_recent_low
+    obv_recent_low = recent_obv.min()
+    obv_prev_low = prev_obv.min() if len(prev_obv) > 0 else obv_recent_low
+
+    divergence = None
+    # Bearish divergence: price higher high, OBV lower high
+    if price_recent_high > price_prev_high and obv_recent_high < obv_prev_high:
+        divergence = "bearish"
+    # Bullish divergence: price lower low, OBV higher low
+    elif price_recent_low < price_prev_low and obv_recent_low > obv_prev_low:
+        divergence = "bullish"
+
+    # Determine direction
+    if obv_change > 0 and price_change > 0:
+        direction = "confirming_uptrend"
+    elif obv_change < 0 and price_change < 0:
+        direction = "confirming_downtrend"
+    elif obv_change > 0 and price_change <= 0:
+        direction = "accumulation"
+    elif obv_change < 0 and price_change >= 0:
+        direction = "distribution"
+    else:
+        direction = "neutral"
+
+    # Generate actionable signal
+    signal = ""
+    signal_type = "neutral"
+
+    if divergence == "bullish":
+        signal = "BULLISH DIVERGENCE - Smart money accumulating despite price drop"
+        signal_type = "bullish"
+    elif divergence == "bearish":
+        signal = "BEARISH DIVERGENCE - Distribution despite price rise, caution"
+        signal_type = "bearish"
+    elif direction == "accumulation":
+        signal = "ACCUMULATION - OBV rising while price flat/down, watch for breakout"
+        signal_type = "bullish"
+    elif direction == "distribution":
+        signal = "DISTRIBUTION - OBV falling while price flat/up, watch for breakdown"
+        signal_type = "bearish"
+    elif direction == "confirming_uptrend":
+        signal = "CONFIRMED UPTREND - Price and volume rising together"
+        signal_type = "bullish"
+    elif direction == "confirming_downtrend":
+        signal = "CONFIRMED DOWNTREND - Price and volume falling together"
+        signal_type = "bearish"
+    else:
+        signal = "NEUTRAL - No clear OBV signal"
+        signal_type = "neutral"
+
+    return {
+        "current_obv": current_obv,
+        "obv_change": obv_change,
+        "obv_vs_sma": obv_vs_sma,
+        "price_change": price_change,
+        "direction": direction,
+        "divergence": divergence,
+        "signal": signal,
+        "signal_type": signal_type,
+    }
+
+
 def volume_vs_average(volume: pd.Series, window: int = 20) -> Dict[str, Any]:
     """
     Compare current volume to its moving average.
@@ -309,6 +608,13 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
     r = rsi(close, 14)
     out["rsi14"] = float(r.iloc[-1]) if len(r.dropna()) else None
 
+    # RSI Momentum Analysis
+    if len(r.dropna()) >= 5:
+        rsi_momentum = analyze_rsi_momentum(r)
+        out["rsi_momentum"] = rsi_momentum
+    else:
+        out["rsi_momentum"] = {"error": "insufficient data"}
+
     # All-time high
     out["ath"] = all_time_high(close)
 
@@ -333,17 +639,22 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
         obv_series = obv(close, volume)
         out["obv"] = float(obv_series.iloc[-1])
         # OBV trend: compare current to 20-day SMA of OBV
-        obv_sma = sma(obv_series, 20)
-        if len(obv_sma.dropna()) > 0:
-            out["obv_sma20"] = float(obv_sma.iloc[-1])
+        obv_sma_series = sma(obv_series, 20)
+        if len(obv_sma_series.dropna()) > 0:
+            out["obv_sma20"] = float(obv_sma_series.iloc[-1])
             out["obv_trend"] = "bullish" if out["obv"] > out["obv_sma20"] else "bearish"
         else:
             out["obv_sma20"] = None
             out["obv_trend"] = "unknown"
+
+        # OBV Momentum Analysis (divergence detection)
+        obv_momentum = analyze_obv_momentum(close, obv_series)
+        out["obv_momentum"] = obv_momentum
     else:
         out["obv"] = None
         out["obv_sma20"] = None
         out["obv_trend"] = "no volume data"
+        out["obv_momentum"] = {"error": "no volume data"}
 
     # MACD
     if len(close) >= 26:
@@ -357,12 +668,17 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
             out["macd_crossover"] = "bullish"
         else:
             out["macd_crossover"] = "bearish"
+
+        # MACD Momentum Analysis
+        macd_momentum = analyze_macd_momentum(macd_data)
+        out["macd_momentum"] = macd_momentum
     else:
         out["macd_line"] = None
         out["macd_signal"] = None
         out["macd_histogram"] = None
         out["macd_histogram_slope"] = "unknown"
         out["macd_crossover"] = "unknown"
+        out["macd_momentum"] = {"error": "insufficient data"}
 
     # Volume vs 20-day average
     if volume is not None:
