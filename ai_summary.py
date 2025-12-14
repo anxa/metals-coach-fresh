@@ -60,9 +60,37 @@ def build_market_context(
     # Momentum
     lines.append("\nMOMENTUM INDICATORS:")
     lines.append(f"  RSI(14): {indicators.get('rsi14', 0):.1f}" if indicators.get('rsi14') else "  RSI: N/A")
+
+    # RSI Trajectory Analysis
+    rsi_momentum = indicators.get('rsi_momentum', {})
+    if "error" not in rsi_momentum:
+        lines.append(f"  RSI Zone: {rsi_momentum.get('zone', 'unknown')} (current: {rsi_momentum.get('current', 0):.1f})")
+        lines.append(f"  RSI Direction: {rsi_momentum.get('direction', 'unknown')} ({rsi_momentum.get('change', 0):+.1f} pts over 5 days)")
+        lines.append(f"  RSI Signal: {rsi_momentum.get('signal', 'N/A')}")
+
     lines.append(f"  MACD Crossover: {indicators.get('macd_crossover', 'unknown')}")
     lines.append(f"  MACD Histogram Slope: {indicators.get('macd_histogram_slope', 'unknown')}")
+
+    # MACD Trajectory Analysis
+    macd_momentum = indicators.get('macd_momentum', {})
+    if "error" not in macd_momentum:
+        lines.append(f"  MACD Above Zero: {macd_momentum.get('above_zero', False)}")
+        lines.append(f"  MACD Histogram Status: {macd_momentum.get('histogram_status', 'unknown')}")
+        if macd_momentum.get('crossover_detected'):
+            lines.append(f"  MACD Crossover: {macd_momentum.get('crossover_type', 'N/A')} ({macd_momentum.get('bars_since_crossover', 0)} bars ago)")
+        lines.append(f"  MACD Signal: {macd_momentum.get('signal', 'N/A')}")
+
     lines.append(f"  OBV Trend: {indicators.get('obv_trend', 'unknown')}")
+
+    # OBV Trajectory Analysis (divergence detection)
+    obv_momentum = indicators.get('obv_momentum', {})
+    if "error" not in obv_momentum:
+        lines.append(f"  OBV vs 20-day SMA: {obv_momentum.get('obv_vs_sma', 'unknown')}")
+        lines.append(f"  OBV Direction: {obv_momentum.get('direction', 'unknown')}")
+        if obv_momentum.get('divergence'):
+            lines.append(f"  ⚠️ OBV DIVERGENCE DETECTED: {obv_momentum.get('divergence', '').upper()}")
+        lines.append(f"  OBV Signal: {obv_momentum.get('signal', 'N/A')}")
+
     lines.append(f"  Volume vs 20d Avg: {indicators.get('volume_ratio', 0):.2f}x ({indicators.get('volume_signal', 'N/A')})" if indicators.get('volume_ratio') else "  Volume: N/A")
 
     # COT Positioning
