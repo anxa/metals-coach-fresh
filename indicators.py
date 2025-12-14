@@ -1026,3 +1026,190 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
 
     out["history"] = df
     return out
+
+
+def compute_indicators_from_df(df: pd.DataFrame, spot_price: float = None) -> Dict[str, Any]:
+    """
+    Compute indicators from a provided DataFrame (for backtesting).
+
+    This is identical to compute_indicators() but accepts a DataFrame directly
+    instead of fetching from yfinance. Used for historical backtesting where
+    we slice the DataFrame to a specific date.
+
+    Args:
+        df: DataFrame with OHLCV data (must have Close, and optionally High, Low, Volume)
+        spot_price: Optional spot price override
+
+    Returns:
+        Dict with all computed indicators (same structure as compute_indicators)
+    """
+    if df is None or df.empty:
+        return {"error": "no history"}
+
+    close = df["Close"].dropna()
+    if len(close) < 50:
+        return {"error": "insufficient data (need at least 50 bars)"}
+
+    out = {}
+
+    # Basic price
+    out["last_close"] = float(close.iloc[-1])
+    out["spot_price"] = spot_price if spot_price else out["last_close"]
+    out["futures_price"] = None  # Not applicable for backtest
+    out["futures_ticker"] = None
+
+    # Moving averages - SMA
+    out["sma20"] = float(sma(close, 20).iloc[-1]) if len(close) >= 20 else None
+    out["sma50"] = float(sma(close, 50).iloc[-1]) if len(close) >= 50 else None
+    out["sma200"] = float(sma(close, 200).iloc[-1]) if len(close) >= 200 else None
+
+    # Moving averages - EMA
+    out["ema20"] = float(ema(close, 20).iloc[-1]) if len(close) >= 20 else None
+    out["ema50"] = float(ema(close, 50).iloc[-1]) if len(close) >= 50 else None
+    out["ema200"] = float(ema(close, 200).iloc[-1]) if len(close) >= 200 else None
+
+    # RSI
+    r = rsi(close, 14)
+    out["rsi14"] = float(r.iloc[-1]) if len(r.dropna()) else None
+
+    # RSI Momentum Analysis
+    if len(r.dropna()) >= 5:
+        rsi_momentum = analyze_rsi_momentum(r)
+        out["rsi_momentum"] = rsi_momentum
+    else:
+        out["rsi_momentum"] = {"error": "insufficient data"}
+
+    # All-time high (within provided data)
+    out["ath"] = all_time_high(close)
+
+    # 52-week high/low
+    hl = high_low_52w(close)
+    out.update(hl)
+
+    # Percentage from key levels
+    ref_price = out["spot_price"] if out["spot_price"] else out["last_close"]
+    out["pct_from_ath"] = pct_from_level(ref_price, out["ath"])
+    out["pct_from_52w_high"] = pct_from_level(ref_price, out["52w_high"])
+    out["pct_from_52w_low"] = pct_from_level(ref_price, out["52w_low"])
+
+    # Trend classification
+    out["trend"] = classify_trend(close, out["sma20"], out["sma50"], out["sma200"])
+
+    # === MOMENTUM INDICATORS ===
+    volume = df["Volume"] if "Volume" in df.columns else None
+
+    # OBV (On-Balance Volume)
+    if volume is not None and not volume.empty:
+        obv_series = obv(close, volume)
+        out["obv"] = float(obv_series.iloc[-1])
+        obv_sma_series = sma(obv_series, 20)
+        if len(obv_sma_series.dropna()) > 0:
+            out["obv_sma20"] = float(obv_sma_series.iloc[-1])
+            out["obv_trend"] = "bullish" if out["obv"] > out["obv_sma20"] else "bearish"
+        else:
+            out["obv_sma20"] = None
+            out["obv_trend"] = "unknown"
+        obv_momentum = analyze_obv_momentum(close, obv_series)
+        out["obv_momentum"] = obv_momentum
+    else:
+        out["obv"] = None
+        out["obv_sma20"] = None
+        out["obv_trend"] = "no volume data"
+        out["obv_momentum"] = {"error": "no volume data"}
+
+    # MACD
+    if len(close) >= 26:
+        macd_data = macd(close)
+        out["macd_line"] = float(macd_data["macd"].iloc[-1])
+        out["macd_signal"] = float(macd_data["signal"].iloc[-1])
+        out["macd_histogram"] = float(macd_data["histogram"].iloc[-1])
+        out["macd_histogram_slope"] = histogram_slope(macd_data["histogram"])
+        out["macd_crossover"] = "bullish" if out["macd_line"] > out["macd_signal"] else "bearish"
+        macd_momentum = analyze_macd_momentum(macd_data)
+        out["macd_momentum"] = macd_momentum
+    else:
+        out["macd_line"] = None
+        out["macd_signal"] = None
+        out["macd_histogram"] = None
+        out["macd_histogram_slope"] = "unknown"
+        out["macd_crossover"] = "unknown"
+        out["macd_momentum"] = {"error": "insufficient data"}
+
+    # Volume vs 20-day average
+    if volume is not None:
+        vol_analysis = volume_vs_average(volume, 20)
+        out["current_volume"] = vol_analysis["current_volume"]
+        out["avg_volume_20d"] = vol_analysis["avg_volume_20d"]
+        out["volume_ratio"] = vol_analysis["volume_ratio"]
+        out["volume_signal"] = vol_analysis["volume_signal"]
+    else:
+        out["current_volume"] = None
+        out["avg_volume_20d"] = None
+        out["volume_ratio"] = None
+        out["volume_signal"] = "no data"
+
+    # === PROFESSIONAL INDICATORS (for 5-pillar analysis) ===
+
+    # ADX (Average Directional Index) for trend strength
+    if "High" in df.columns and "Low" in df.columns and len(close) >= 28:
+        adx_data = adx(df["High"], df["Low"], close, period=14)
+        out["adx"] = float(adx_data["adx"].iloc[-1])
+        out["plus_di"] = float(adx_data["plus_di"].iloc[-1])
+        out["minus_di"] = float(adx_data["minus_di"].iloc[-1])
+        out["adx_series"] = adx_data["adx"]
+    else:
+        out["adx"] = None
+        out["plus_di"] = None
+        out["minus_di"] = None
+        out["adx_series"] = None
+
+    # SMA50 slope over 20 days
+    if len(close) >= 70:
+        sma50_series = sma(close, 50)
+        out["sma50_slope"] = sma_slope(sma50_series, lookback=20)
+        out["sma50_series"] = sma50_series
+    else:
+        out["sma50_slope"] = 0.0
+        out["sma50_series"] = None
+
+    # RSI divergence detection
+    if len(close) >= 30:
+        rsi_series = rsi(close, 14)
+        rsi_div = detect_divergence(close, rsi_series, lookback=30)
+        out["rsi_divergence"] = rsi_div
+    else:
+        out["rsi_divergence"] = {"divergence": None, "type": None}
+
+    # Up/Down volume ratio
+    if volume is not None and not volume.empty and len(close) >= 11:
+        ud_vol = up_down_volume_ratio(close, volume, lookback=10)
+        out["up_down_volume"] = ud_vol
+    else:
+        out["up_down_volume"] = {"error": "insufficient data"}
+
+    # OBV trend direction (for participation analysis)
+    if volume is not None and not volume.empty and len(close) >= 20:
+        obv_series = obv(close, volume)
+        obv_sma_20 = sma(obv_series, 20)
+
+        if len(obv_series) >= 10:
+            obv_recent = obv_series.iloc[-10:]
+            obv_start = obv_recent.iloc[0]
+            obv_end = obv_recent.iloc[-1]
+            if obv_start != 0:
+                out["obv_slope"] = ((obv_end - obv_start) / abs(obv_start)) * 100
+            else:
+                out["obv_slope"] = 0.0
+        else:
+            out["obv_slope"] = 0.0
+
+        if len(obv_sma_20.dropna()) > 0:
+            out["obv_vs_sma"] = "above" if obv_series.iloc[-1] > obv_sma_20.iloc[-1] else "below"
+        else:
+            out["obv_vs_sma"] = "unknown"
+    else:
+        out["obv_slope"] = 0.0
+        out["obv_vs_sma"] = "unknown"
+
+    out["history"] = df
+    return out

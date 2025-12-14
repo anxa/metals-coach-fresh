@@ -26,6 +26,7 @@ from macro_fetcher import get_macro_dashboard, get_copper_macro, analyze_macro_t
 from term_structure import analyze_term_structure
 from ai_summary import generate_ai_summary, get_quick_verdict, get_copper_verdict
 from market_regime import get_full_market_analysis, get_five_pillar_analysis
+from forward_expectations import get_forward_expectations
 
 # === PAGE CONFIG ===
 st.set_page_config(
@@ -1009,6 +1010,124 @@ with pro_col2:
 
 with pro_col3:
     render_five_pillar_analysis(copper_five, "COPPER", "#B87333")
+
+# === FORWARD EXPECTATIONS ===
+st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+st.markdown("### 🎯 Forward Expectations")
+st.caption("Probabilistic outlook based on historical state outcomes. Not predictions - statistical tendencies.")
+
+
+def get_direction_color(direction: str) -> tuple:
+    """Get color and emoji for expected direction."""
+    if direction in ["strongly_positive", "positive"]:
+        return "#00c853", "🟢"
+    elif direction in ["strongly_negative", "negative"]:
+        return "#ff5252", "🔴"
+    else:
+        return "#ffc107", "⚪"
+
+
+def render_forward_expectations(five_pillar: dict, metal: str, color: str):
+    """Render forward expectations for a metal based on current 5-pillar state."""
+    expectations = get_forward_expectations(five_pillar, metal.lower())
+
+    if not expectations.get("has_data"):
+        st.info(f"Run backtest for {metal} to enable forward expectations")
+        return
+
+    state = expectations["state_readable"]
+    n_samples = expectations["n_samples"]
+    confidence = expectations["confidence_score"]
+    edge_class = expectations.get("edge_class", "neutral")
+
+    exp_5d = expectations["expectations"]["5d"]
+    exp_20d = expectations["expectations"]["20d"]
+    risk = expectations["risk_metrics"]
+
+    # Direction colors
+    dir_5d_color, dir_5d_emoji = get_direction_color(exp_5d["direction"])
+    dir_20d_color, dir_20d_emoji = get_direction_color(exp_20d["direction"])
+
+    # Header with state and confidence
+    st.markdown(f"""
+    <div style="background: linear-gradient(145deg, #1a2332 0%, #1e2940 100%);
+                border-radius: 12px; padding: 16px; border-left: 4px solid {color};
+                margin-bottom: 12px;">
+        <div style="color: #888; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px;">{metal}</div>
+        <div style="font-size: 0.95rem; color: #fff; margin: 6px 0;">{state}</div>
+        <div style="display: flex; gap: 12px; margin-top: 8px;">
+            <span style="color: #888; font-size: 0.8rem;">📊 {n_samples} observations</span>
+            <span style="color: #888; font-size: 0.8rem;">🎯 {confidence:.0f}% confidence</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Expectations
+    col_5d, col_20d = st.columns(2)
+
+    with col_5d:
+        st.markdown(f"""
+        <div style="background: #1a2332; border-radius: 8px; padding: 12px; text-align: center;">
+            <div style="color: #888; font-size: 0.75rem;">5-DAY OUTLOOK</div>
+            <div style="font-size: 1.3rem; color: {dir_5d_color}; font-weight: bold;">{dir_5d_emoji} {exp_5d['direction'].replace('_', ' ').upper()}</div>
+            <div style="color: #aaa; font-size: 0.8rem; margin-top: 4px;">
+                Mean: {exp_5d['mean']:+.2f}% | Hit: {exp_5d['hit_rate']:.0f}%
+            </div>
+            <div style="color: #666; font-size: 0.75rem;">
+                Range: {exp_5d['typical_range'][0]:+.1f}% to {exp_5d['typical_range'][1]:+.1f}%
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_20d:
+        st.markdown(f"""
+        <div style="background: #1a2332; border-radius: 8px; padding: 12px; text-align: center;">
+            <div style="color: #888; font-size: 0.75rem;">20-DAY OUTLOOK</div>
+            <div style="font-size: 1.3rem; color: {dir_20d_color}; font-weight: bold;">{dir_20d_emoji} {exp_20d['direction'].replace('_', ' ').upper()}</div>
+            <div style="color: #aaa; font-size: 0.8rem; margin-top: 4px;">
+                Mean: {exp_20d['mean']:+.2f}% | Hit: {exp_20d['hit_rate']:.0f}%
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Risk metrics and warnings in expander
+    with st.expander(f"View {metal} Risk & Warnings"):
+        st.markdown("**Risk Profile:**")
+        st.caption(f"• Avg drawdown before gains: {risk['avg_drawdown_5d']:.1f}%")
+        st.caption(f"• Risk/Reward ratio: {risk['risk_reward_ratio']:.2f}")
+
+        warnings = expectations.get("warnings", [])
+        if warnings:
+            st.markdown("**Warnings:**")
+            for w in warnings[:3]:
+                severity_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(w["severity"], "⚪")
+                st.caption(f"{severity_icon} {w['message']}")
+
+        inv = expectations.get("invalidation", {})
+        if inv:
+            st.markdown("**Invalidation:**")
+            st.caption(f"• {inv.get('trigger', 'N/A')}")
+            st.caption(f"• {inv.get('suggested_stop', '')}")
+
+
+# Render expectations for each metal
+fwd_col1, fwd_col2, fwd_col3 = st.columns(3)
+
+with fwd_col1:
+    if "error" not in gold_five:
+        render_forward_expectations(gold_five, "GOLD", "#FFD700")
+    else:
+        st.info("Gold forward expectations unavailable")
+
+with fwd_col2:
+    if "error" not in silver_five:
+        render_forward_expectations(silver_five, "SILVER", "#C0C0C0")
+    else:
+        st.info("Silver forward expectations unavailable")
+
+with fwd_col3:
+    # Copper doesn't have backtest data yet
+    st.info("Copper forward expectations require backtest data")
 
 # === MACRO DRIVERS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
