@@ -15,8 +15,11 @@ ENV/
 # Streamlit secrets (NEVER commit!)
 .streamlit/secrets.toml
 
-# Data files (large)
+# Data files (large raw data - excluded)
 data/*.csv
+
+# But include pre-computed backtest aggregates (needed for Forward Expectations)
+!data/backtest_*_agg.csv
 
 # IDE
 .vscode/
