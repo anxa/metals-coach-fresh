@@ -1264,7 +1264,10 @@ def render_technical_tab(ind, cot, term, metal_name):
     st.markdown("#### 📉 Price Chart (180 Days)")
     hist = ind.get("history")
     if hist is not None and not hist.empty:
-        st.line_chart(hist['Close'].tail(180), use_container_width=True)
+        chart_data = hist['Close'].tail(180)
+        last_date = chart_data.index[-1].strftime("%Y-%m-%d")
+        st.caption(f"Data through: {last_date} (market close)")
+        st.line_chart(chart_data, use_container_width=True)
 
 with tab_gold:
     render_technical_tab(gold_ind, gold_cot, gold_term, "Gold")
