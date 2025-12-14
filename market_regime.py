@@ -1,613 +1,647 @@
 """
-Professional Market Regime Analysis
+Professional 5-Pillar Market Analysis Framework
 
-This module implements the professional trader's framework:
-- Regime classification (bullish/bearish/range)
-- Momentum phase detection (accelerating/decelerating/diverging)
-- Volume confirmation
-- Cycle position (early/mid/late stage)
-- Actionable recommendations (add/hold/reduce/wait)
+This module implements a rigorous, trader-tested methodology with clear rules:
 
-Key principle: Trade transitions, not snapshots.
+1. REGIME: uptrend / downtrend / range
+   - Uses ADX(14), SMA200, SMA50, slope of SMA50
+
+2. MOMENTUM: accelerating / cooling / diverging
+   - Uses MACD histogram slope, RSI direction, swing divergence
+
+3. PARTICIPATION: confirming / thinning / distribution
+   - Uses up/down volume ratio, OBV trend
+
+4. MACRO TAILWIND: supportive / neutral / hostile
+   - Uses 5d/20d changes in DXY, real yields
+
+5. POSITIONING: crowded / neutral / washed out
+   - Uses COT Managed Money percentile
+
+Each pillar has explicit rules - no ad-hoc scoring.
 """
 
-from typing import Dict, Any, List, Tuple
-import pandas as pd
-import numpy as np
+from typing import Dict, Any, Optional
 
 
 def classify_regime(
     price: float,
     sma200: float,
     sma50: float,
-    trend: str,
-    rsi: float,
-    macro_bias: str = "neutral"
+    sma50_slope: float,
+    adx: float
 ) -> Dict[str, Any]:
     """
-    Classify the market regime.
+    Classify market regime using ADX + SMA rules.
 
-    Regimes:
-    - BULLISH: Price > 200 SMA, trend up, RSI in bullish regime (40-80)
-    - BEARISH: Price < 200 SMA, trend down, RSI in bearish regime (20-60)
-    - RANGE/CONSOLIDATION: Mixed signals, no clear trend
+    Rules:
+    - UPTREND: Close > SMA200 AND SMA50 > SMA200 AND slope(SMA50, 20d) > 0 AND ADX > 18
+    - DOWNTREND: Close < SMA200 AND SMA50 < SMA200 AND slope(SMA50, 20d) < 0 AND ADX > 18
+    - RANGE: ADX < 18 OR (within 3% of SMA200 AND SMA50 slope flat)
 
-    Returns regime classification with confidence.
+    Args:
+        price: Current price
+        sma200: 200-day SMA
+        sma50: 50-day SMA
+        sma50_slope: 20-day slope of SMA50 (as % change)
+        adx: ADX(14) value
+
+    Returns:
+        Dict with regime, conditions met, and description
     """
-    if price is None or sma200 is None:
-        return {"regime": "unknown", "confidence": "low", "description": "Insufficient data"}
+    if price is None or sma200 is None or sma50 is None:
+        return {
+            "regime": "unknown",
+            "description": "Insufficient data",
+            "conditions": []
+        }
 
-    # Score components
-    score = 0
-    factors = []
+    # Default values if missing
+    adx = adx if adx is not None else 15
+    sma50_slope = sma50_slope if sma50_slope is not None else 0
 
-    # Price vs 200 SMA (most important)
-    pct_from_200 = ((price - sma200) / sma200) * 100
-    if pct_from_200 > 5:
-        score += 2
-        factors.append(("Price well above 200 SMA", "bullish"))
-    elif pct_from_200 > 0:
-        score += 1
-        factors.append(("Price above 200 SMA", "bullish"))
-    elif pct_from_200 < -5:
-        score -= 2
-        factors.append(("Price well below 200 SMA", "bearish"))
-    elif pct_from_200 < 0:
-        score -= 1
-        factors.append(("Price below 200 SMA", "bearish"))
+    conditions = []
 
-    # Trend classification
-    if trend == "uptrend":
-        score += 2
-        factors.append(("MA alignment bullish", "bullish"))
-    elif trend == "downtrend":
-        score -= 2
-        factors.append(("MA alignment bearish", "bearish"))
-    else:  # chop
-        factors.append(("MA alignment mixed", "neutral"))
+    # Calculate key metrics
+    price_vs_200 = ((price - sma200) / sma200) * 100 if sma200 != 0 else 0
+    sma50_vs_200 = sma50 > sma200
 
-    # RSI regime (not level!)
-    # Bullish regime: RSI tends to stay 40-80
-    # Bearish regime: RSI tends to stay 20-60
-    if rsi is not None:
-        if rsi > 40 and rsi < 80:
-            # Could be bullish regime
-            if rsi > 50:
-                score += 1
-                factors.append(("RSI in bullish regime zone", "bullish"))
-        elif rsi < 60 and rsi > 20:
-            # Could be bearish regime
-            if rsi < 50:
-                score -= 1
-                factors.append(("RSI in bearish regime zone", "bearish"))
+    # Check conditions
+    price_above_200 = price > sma200
+    price_below_200 = price < sma200
+    slope_rising = sma50_slope > 0.2  # Small positive threshold
+    slope_falling = sma50_slope < -0.2  # Small negative threshold
+    slope_flat = abs(sma50_slope) <= 0.2
+    strong_trend = adx > 18
+    weak_trend = adx < 18
+    near_200 = abs(price_vs_200) < 3
 
-    # Macro backdrop
-    if macro_bias == "bullish":
-        score += 1
-        factors.append(("Macro supportive", "bullish"))
-    elif macro_bias == "bearish":
-        score -= 1
-        factors.append(("Macro hostile", "bearish"))
-
-    # Classify regime
-    if score >= 3:
-        regime = "BULLISH"
-        confidence = "high" if score >= 4 else "moderate"
-        description = "Uptrend intact - shorts are low probability"
-    elif score <= -3:
-        regime = "BEARISH"
-        confidence = "high" if score <= -4 else "moderate"
-        description = "Downtrend intact - longs are low probability"
-    elif abs(score) <= 1:
-        regime = "RANGE"
-        confidence = "moderate"
-        description = "No clear trend - wait for breakout or trade range"
+    # Record conditions
+    if price_above_200:
+        conditions.append(f"Price above SMA200 (+{price_vs_200:.1f}%)")
     else:
-        regime = "TRANSITIONAL"
-        confidence = "low"
-        description = "Regime changing - reduced position sizing advised"
+        conditions.append(f"Price below SMA200 ({price_vs_200:.1f}%)")
+
+    if sma50_vs_200:
+        conditions.append("SMA50 > SMA200")
+    else:
+        conditions.append("SMA50 < SMA200")
+
+    if slope_rising:
+        conditions.append(f"SMA50 slope rising (+{sma50_slope:.2f}%)")
+    elif slope_falling:
+        conditions.append(f"SMA50 slope falling ({sma50_slope:.2f}%)")
+    else:
+        conditions.append(f"SMA50 slope flat ({sma50_slope:.2f}%)")
+
+    conditions.append(f"ADX = {adx:.1f}")
+
+    # Classify regime using explicit rules
+    if weak_trend or (near_200 and slope_flat):
+        regime = "range"
+        description = "No clear trend - ADX weak or price near SMA200 with flat slope"
+    elif price_above_200 and sma50_vs_200 and slope_rising and strong_trend:
+        regime = "uptrend"
+        description = "Uptrend confirmed - all bullish conditions met"
+    elif price_below_200 and not sma50_vs_200 and slope_falling and strong_trend:
+        regime = "downtrend"
+        description = "Downtrend confirmed - all bearish conditions met"
+    elif price_above_200 and strong_trend:
+        regime = "uptrend"
+        description = "Uptrend - price above SMA200 with trending ADX"
+    elif price_below_200 and strong_trend:
+        regime = "downtrend"
+        description = "Downtrend - price below SMA200 with trending ADX"
+    else:
+        regime = "range"
+        description = "Range-bound - mixed signals"
 
     return {
         "regime": regime,
-        "confidence": confidence,
         "description": description,
-        "score": score,
-        "pct_from_200sma": pct_from_200,
-        "factors": factors,
+        "conditions": conditions,
+        "metrics": {
+            "price_vs_200": price_vs_200,
+            "sma50_vs_200": "above" if sma50_vs_200 else "below",
+            "sma50_slope": sma50_slope,
+            "adx": adx,
+        }
     }
 
 
-def analyze_momentum_phase(
-    rsi_current: float,
-    rsi_change: float,
-    rsi_direction: str,
+def analyze_momentum(
     macd_histogram: float,
-    macd_hist_change: float,
-    macd_above_zero: bool,
+    macd_hist_slope: str,
+    rsi_current: float,
+    rsi_direction: str,
+    rsi_divergence: Dict[str, Any],
     price_trend: str
 ) -> Dict[str, Any]:
     """
-    Determine momentum phase.
+    Analyze momentum phase with proper divergence detection.
 
-    Phases:
-    - ACCELERATING: Momentum building (RSI rising, histogram expanding)
-    - STEADY: Momentum stable (normal trend behavior)
-    - DECELERATING: Momentum cooling (RSI falling, histogram shrinking)
-    - DIVERGING: Momentum conflicting with price (warning signal)
+    Rules:
+    - ACCELERATING: MACD histogram rising 3-5 days AND RSI rising above 10d avg AND higher closes
+    - COOLING: Price still trending BUT MACD histogram falling AND RSI rolling over
+    - DIVERGING: Price higher high + RSI lower high (bearish) OR Price lower low + RSI higher low (bullish)
 
-    Key insight: Deceleration != Reversal. Deceleration = Risk Rising.
+    Args:
+        macd_histogram: Current MACD histogram value
+        macd_hist_slope: "rising", "falling", or "flat"
+        rsi_current: Current RSI value
+        rsi_direction: "rising", "falling", or "flat"
+        rsi_divergence: Divergence detection result from indicators.py
+        price_trend: Current price trend ("uptrend", "downtrend", "chop")
+
+    Returns:
+        Dict with momentum phase and supporting details
     """
-    if rsi_current is None:
-        return {"phase": "unknown", "risk_level": "unknown"}
+    conditions = []
 
-    # Determine RSI behavior
-    rsi_accelerating = rsi_direction == "rising" and rsi_change > 5
-    rsi_decelerating = rsi_direction == "falling" and rsi_change < -5
-    rsi_stable = abs(rsi_change) <= 5
+    # Check for divergence first (highest priority)
+    divergence = rsi_divergence.get("divergence")
+    if divergence:
+        div_type = rsi_divergence.get("type", "regular")
+        if divergence == "bearish":
+            return {
+                "phase": "diverging",
+                "divergence_type": "bearish",
+                "description": "Bearish divergence - price higher highs, RSI lower highs",
+                "warning": "Momentum weakening despite price strength - elevated reversal risk",
+                "conditions": [
+                    f"RSI divergence: {divergence}",
+                    rsi_divergence.get("description", "")
+                ]
+            }
+        elif divergence == "bullish":
+            return {
+                "phase": "diverging",
+                "divergence_type": "bullish",
+                "description": "Bullish divergence - price lower lows, RSI higher lows",
+                "warning": "Momentum strengthening despite price weakness - potential reversal",
+                "conditions": [
+                    f"RSI divergence: {divergence}",
+                    rsi_divergence.get("description", "")
+                ]
+            }
 
-    # Determine MACD behavior
-    macd_accelerating = macd_hist_change > 0 and macd_histogram > 0
-    macd_decelerating = macd_hist_change < 0 and macd_histogram > 0  # Still positive but shrinking
-    macd_bearish_accelerating = macd_hist_change < 0 and macd_histogram < 0
+    # Check MACD histogram behavior
+    macd_rising = macd_hist_slope == "rising"
+    macd_falling = macd_hist_slope == "falling"
 
-    # Check for divergence (price up but momentum down, or vice versa)
-    diverging = False
-    divergence_type = None
+    # Check RSI behavior
+    rsi_rising = rsi_direction == "rising"
+    rsi_falling = rsi_direction == "falling"
 
-    if price_trend == "uptrend":
-        if rsi_direction == "falling" and rsi_change < -8:
-            diverging = True
-            divergence_type = "bearish"
-        if macd_hist_change < 0 and macd_histogram > 0:
-            # MACD falling but above zero - common in uptrends
-            pass  # This is normal cooling, not divergence
-    elif price_trend == "downtrend":
-        if rsi_direction == "rising" and rsi_change > 8:
-            diverging = True
-            divergence_type = "bullish"
+    # Record conditions
+    conditions.append(f"MACD histogram: {macd_hist_slope}")
+    conditions.append(f"RSI direction: {rsi_direction}")
+    if rsi_current:
+        conditions.append(f"RSI level: {rsi_current:.1f}")
 
-    # Classify phase
-    if diverging:
-        phase = "DIVERGING"
-        risk_level = "elevated"
-        description = f"{divergence_type.title()} divergence - trend continuation with rising risk"
-        action_bias = "reduce" if divergence_type == "bearish" else "watch for reversal"
-    elif rsi_accelerating and (macd_accelerating or macd_above_zero):
-        phase = "ACCELERATING"
-        risk_level = "normal"
-        description = "Momentum building - trend strengthening"
-        action_bias = "hold or add on pullbacks"
-    elif rsi_decelerating or macd_decelerating:
-        phase = "DECELERATING"
-        risk_level = "rising"
-        description = "Momentum cooling - normal but watch closely"
-        action_bias = "hold, stop chasing"
+    # Classify momentum phase
+    if macd_rising and rsi_rising:
+        phase = "accelerating"
+        description = "Momentum building - MACD and RSI both rising"
+    elif macd_falling and rsi_falling:
+        phase = "cooling"
+        description = "Momentum fading - MACD and RSI both falling"
+    elif price_trend == "uptrend" and (macd_falling or rsi_falling):
+        phase = "cooling"
+        description = "Uptrend with cooling momentum - watch for continuation vs reversal"
+    elif price_trend == "downtrend" and (macd_rising or rsi_rising):
+        phase = "cooling"
+        description = "Downtrend with improving momentum - potential bottom forming"
+    elif macd_rising or rsi_rising:
+        phase = "accelerating"
+        description = "Momentum improving"
+    elif macd_falling or rsi_falling:
+        phase = "cooling"
+        description = "Momentum weakening"
     else:
-        phase = "STEADY"
-        risk_level = "normal"
-        description = "Momentum stable - trend intact"
-        action_bias = "hold"
+        phase = "steady"
+        description = "Momentum neutral - no strong signal"
 
     return {
         "phase": phase,
-        "risk_level": risk_level,
+        "divergence_type": None,
         "description": description,
-        "action_bias": action_bias,
-        "rsi_behavior": "accelerating" if rsi_accelerating else "decelerating" if rsi_decelerating else "stable",
-        "macd_behavior": "accelerating" if macd_accelerating else "decelerating" if macd_decelerating else "stable",
-        "diverging": diverging,
-        "divergence_type": divergence_type,
+        "conditions": conditions,
+        "macd_histogram": macd_histogram,
+        "rsi_current": rsi_current,
     }
 
 
-def analyze_volume_confirmation(
-    volume_ratio: float,
-    volume_signal: str,
-    obv_direction: str,
-    obv_divergence: str,
-    price_direction: str  # "up", "down", "flat"
+def analyze_participation(
+    up_down_volume: Dict[str, Any],
+    obv_slope: float,
+    obv_vs_sma: str,
+    price_direction: str
 ) -> Dict[str, Any]:
     """
-    Volume is the tiebreaker when indicators conflict.
+    Analyze volume participation quality.
 
-    Key questions:
-    - Is volume expanding or contracting?
-    - Is it expanding on advances or declines?
-    - Is money committing or backing away?
+    Rules:
+    - CONFIRMING: Price rising AND vol_ratio > 1.1 on up days AND OBV trending up
+    - THINNING: Price rising BUT vol_ratio < 0.9 for several sessions AND OBV flat/down
+    - DISTRIBUTION: Price near highs BUT big down days on high volume AND OBV rolling over
+
+    Args:
+        up_down_volume: Result from up_down_volume_ratio()
+        obv_slope: OBV slope over 10 days
+        obv_vs_sma: "above" or "below" OBV's 20-day SMA
+        price_direction: "up", "down", or "flat"
+
+    Returns:
+        Dict with participation status and details
     """
-    if volume_ratio is None:
-        return {"confirmation": "unknown", "description": "No volume data"}
+    if "error" in up_down_volume:
+        return {
+            "status": "unknown",
+            "description": "Insufficient volume data",
+            "conditions": []
+        }
 
-    # Volume expansion/contraction
-    volume_expanding = volume_ratio > 1.2
-    volume_contracting = volume_ratio < 0.8
-    volume_normal = 0.8 <= volume_ratio <= 1.2
+    vol_ratio = up_down_volume.get("vol_ratio", 1.0)
+    vol_interpretation = up_down_volume.get("interpretation", "neutral")
 
-    # OBV tells us if volume is on up days or down days
-    obv_bullish = obv_direction in ["confirming_uptrend", "accumulation"]
-    obv_bearish = obv_direction in ["confirming_downtrend", "distribution"]
+    conditions = []
+    conditions.append(f"Up/Down volume ratio: {vol_ratio:.2f}")
+    conditions.append(f"Volume interpretation: {vol_interpretation}")
+    conditions.append(f"OBV vs SMA: {obv_vs_sma}")
+    if obv_slope:
+        conditions.append(f"OBV slope: {obv_slope:.1f}%")
 
-    # Analyze confirmation
-    if volume_expanding and obv_bullish:
-        confirmation = "STRONG"
-        description = "Volume expanding on advances - money committing to upside"
-        participation = "increasing"
-    elif volume_expanding and obv_bearish:
-        confirmation = "STRONG_BEARISH"
-        description = "Volume expanding on declines - distribution underway"
-        participation = "increasing (sellers)"
-    elif volume_contracting and obv_bullish:
-        confirmation = "WEAK"
-        description = "Low volume advance - fragile move, needs confirmation"
-        participation = "thin"
-    elif volume_contracting and obv_bearish:
-        confirmation = "WEAK_BEARISH"
-        description = "Low volume decline - may be temporary"
-        participation = "thin"
-    elif obv_divergence == "bullish":
-        confirmation = "DIVERGENT_BULLISH"
-        description = "Accumulation despite price weakness - smart money buying"
-        participation = "hidden buying"
-    elif obv_divergence == "bearish":
-        confirmation = "DIVERGENT_BEARISH"
-        description = "Distribution despite price strength - smart money selling"
-        participation = "hidden selling"
+    # OBV trend
+    obv_rising = obv_slope > 0.5 if obv_slope else False
+    obv_falling = obv_slope < -0.5 if obv_slope else False
+    obv_bullish = obv_vs_sma == "above"
+
+    # Classify participation
+    if price_direction == "up":
+        if vol_ratio > 1.1 and (obv_rising or obv_bullish):
+            status = "confirming"
+            description = "Volume confirms advance - higher volume on up days, OBV healthy"
+        elif vol_ratio < 0.9 or obv_falling:
+            status = "thinning"
+            description = "Advance on thin volume - participation weakening"
+        elif vol_ratio < 0.9 and obv_falling:
+            status = "distribution"
+            description = "Distribution underway - smart money may be selling"
+        else:
+            status = "neutral"
+            description = "Volume neutral - no strong signal"
+    elif price_direction == "down":
+        if vol_ratio < 0.9 and obv_falling:
+            status = "confirming"
+            description = "Volume confirms decline - selling pressure evident"
+        elif vol_ratio > 1.1 or obv_rising:
+            status = "thinning"
+            description = "Decline on weak volume - selling may be exhausting"
+        else:
+            status = "neutral"
+            description = "Volume neutral during decline"
     else:
-        confirmation = "NEUTRAL"
-        description = "Volume neutral - no strong signal"
-        participation = "normal"
+        if vol_interpretation in ["strong_selling", "selling"]:
+            status = "distribution"
+            description = "Distribution pattern - selling into range"
+        elif vol_interpretation in ["strong_buying", "buying"]:
+            status = "accumulation"
+            description = "Accumulation pattern - buying into range"
+        else:
+            status = "neutral"
+            description = "Volume neutral in range"
 
     return {
-        "confirmation": confirmation,
+        "status": status,
         "description": description,
+        "conditions": conditions,
+        "vol_ratio": vol_ratio,
+        "obv_trend": "rising" if obv_rising else "falling" if obv_falling else "flat",
+    }
+
+
+def analyze_macro_tailwind_status(tailwind_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Format macro tailwind analysis for display.
+
+    The actual analysis is done in macro_fetcher.analyze_macro_tailwind().
+    This function formats it for the 5-pillar display.
+
+    Args:
+        tailwind_data: Output from macro_fetcher.analyze_macro_tailwind()
+
+    Returns:
+        Dict with formatted tailwind status
+    """
+    status = tailwind_data.get("status", "neutral")
+    description = tailwind_data.get("description", "No data available")
+
+    conditions = []
+    if tailwind_data.get("usd_trend"):
+        conditions.append(f"USD trend: {tailwind_data['usd_trend']}")
+    if tailwind_data.get("real_yield_trend"):
+        conditions.append(f"Real yield trend: {tailwind_data['real_yield_trend']}")
+    if tailwind_data.get("dxy_change_5d") is not None:
+        conditions.append(f"DXY 5d: {tailwind_data['dxy_change_5d']:+.2f}")
+    if tailwind_data.get("ry_change_5d") is not None:
+        conditions.append(f"Real yield 5d: {tailwind_data['ry_change_5d']:+.3f}")
+
+    return {
+        "status": status,
+        "description": description,
+        "conditions": conditions,
+    }
+
+
+def analyze_positioning(
+    cot_percentile: Optional[float],
+    cot_net_position: Optional[float] = None
+) -> Dict[str, Any]:
+    """
+    Analyze COT positioning for crowding risk.
+
+    Rules:
+    - CROWDED: MM percentile > 80 (very long) or < 20 (very short) - late stage risk
+    - WASHED OUT: MM percentile < 20 with potential bottom forming
+    - NEUTRAL: 20-80 percentile
+
+    Args:
+        cot_percentile: Managed Money net position percentile (0-100, 3yr lookback)
+        cot_net_position: Raw net position (optional, for context)
+
+    Returns:
+        Dict with positioning status
+    """
+    if cot_percentile is None:
+        return {
+            "status": "unknown",
+            "description": "COT data not available",
+            "conditions": ["No COT data"]
+        }
+
+    conditions = [f"MM percentile: {cot_percentile:.0f}%"]
+    if cot_net_position is not None:
+        conditions.append(f"Net position: {cot_net_position:,.0f}")
+
+    if cot_percentile > 80:
+        status = "crowded_long"
+        description = "Crowded long - elevated reversal risk, late-stage positioning"
+        warning = "Extreme bullish positioning - contrarian signal"
+    elif cot_percentile < 20:
+        status = "washed_out"
+        description = "Washed out - potential bottom, contrarian buy signal"
+        warning = "Extreme bearish positioning - watch for reversal"
+    elif cot_percentile > 65:
+        status = "elevated_long"
+        description = "Elevated long positioning - some crowding risk"
+        warning = None
+    elif cot_percentile < 35:
+        status = "light_positioning"
+        description = "Light positioning - room for longs to build"
+        warning = None
+    else:
+        status = "neutral"
+        description = "Neutral positioning - no crowding signal"
+        warning = None
+
+    result = {
+        "status": status,
+        "description": description,
+        "conditions": conditions,
+        "percentile": cot_percentile,
+    }
+    if warning:
+        result["warning"] = warning
+
+    return result
+
+
+def get_five_pillar_analysis(
+    indicators: Dict[str, Any],
+    macro_tailwind: Dict[str, Any],
+    cot_data: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Run the complete 5-pillar professional analysis.
+
+    Args:
+        indicators: Output from compute_indicators()
+        macro_tailwind: Output from macro_fetcher.analyze_macro_tailwind()
+        cot_data: COT data (optional)
+
+    Returns:
+        Dict with all 5 pillars analyzed
+    """
+    # Extract needed values from indicators
+    price = indicators.get("spot_price") or indicators.get("last_close")
+    sma200 = indicators.get("sma200")
+    sma50 = indicators.get("sma50")
+    sma50_slope = indicators.get("sma50_slope", 0)
+    adx_val = indicators.get("adx")
+
+    # MACD data
+    macd_histogram = indicators.get("macd_histogram", 0)
+    macd_hist_slope = indicators.get("macd_histogram_slope", "flat")
+
+    # RSI data
+    rsi_momentum = indicators.get("rsi_momentum", {})
+    rsi_current = rsi_momentum.get("current") or indicators.get("rsi14")
+    rsi_direction = rsi_momentum.get("direction", "flat")
+    rsi_divergence = indicators.get("rsi_divergence", {"divergence": None})
+
+    # Volume data
+    up_down_volume = indicators.get("up_down_volume", {"error": "no data"})
+    obv_slope = indicators.get("obv_slope", 0)
+    obv_vs_sma = indicators.get("obv_vs_sma", "unknown")
+
+    # Trend for context
+    trend = indicators.get("trend", "chop")
+    price_direction = "up" if trend == "uptrend" else "down" if trend == "downtrend" else "flat"
+
+    # 1. REGIME
+    regime = classify_regime(price, sma200, sma50, sma50_slope, adx_val)
+
+    # 2. MOMENTUM
+    momentum = analyze_momentum(
+        macd_histogram, macd_hist_slope,
+        rsi_current, rsi_direction,
+        rsi_divergence, trend
+    )
+
+    # 3. PARTICIPATION
+    participation = analyze_participation(
+        up_down_volume, obv_slope, obv_vs_sma, price_direction
+    )
+
+    # 4. MACRO TAILWIND
+    tailwind = analyze_macro_tailwind_status(macro_tailwind)
+
+    # 5. POSITIONING
+    cot_percentile = None
+    cot_net = None
+    if cot_data and "error" not in cot_data:
+        # Try different key names used by cot_fetcher
+        cot_percentile = cot_data.get("managed_money_percentile") or cot_data.get("mm_percentile")
+        cot_net = cot_data.get("managed_money_net") or cot_data.get("mm_net_position")
+    positioning = analyze_positioning(cot_percentile, cot_net)
+
+    # Generate overall assessment
+    assessment = generate_overall_assessment(
+        regime, momentum, participation, tailwind, positioning
+    )
+
+    return {
+        "regime": regime,
+        "momentum": momentum,
         "participation": participation,
-        "volume_ratio": volume_ratio,
-        "volume_expanding": volume_expanding,
-        "volume_contracting": volume_contracting,
+        "tailwind": tailwind,
+        "positioning": positioning,
+        "assessment": assessment,
     }
 
 
-def detect_cycle_position(
-    pct_from_52w_low: float,
-    pct_from_52w_high: float,
-    rsi: float,
-    momentum_phase: str,
-    volume_confirmation: str
-) -> Dict[str, Any]:
-    """
-    Determine where we are in the cycle.
-
-    Positions:
-    - EARLY: Near lows, momentum turning, good risk/reward
-    - MID: Trend established, still room to run
-    - LATE: Extended, euphoric, reduced risk/reward
-    - BOTTOMING: Near lows, momentum stabilizing
-    - TOPPING: Near highs, momentum fading
-    """
-    if pct_from_52w_low is None or pct_from_52w_high is None:
-        return {"position": "unknown"}
-
-    # Calculate position in range
-    total_range = pct_from_52w_low - pct_from_52w_high  # This will be positive
-    # pct_from_52w_high is negative (below high), pct_from_52w_low is positive (above low)
-
-    # Near 52w high
-    near_high = pct_from_52w_high > -5  # Within 5% of high
-    near_low = pct_from_52w_low < 15  # Within 15% of low
-
-    # RSI extremes
-    rsi_overbought = rsi > 70 if rsi else False
-    rsi_oversold = rsi < 30 if rsi else False
-
-    # Classify position
-    if near_low and momentum_phase in ["ACCELERATING", "STEADY"]:
-        position = "EARLY"
-        description = "Early stage advance - best risk/reward"
-        action = "Consider adding on confirmation"
-        risk_reward = "favorable"
-    elif near_low and momentum_phase == "DECELERATING":
-        position = "BOTTOMING"
-        description = "Potential bottom forming - watch for momentum turn"
-        action = "Watch, prepare to buy on strength"
-        risk_reward = "favorable if confirmed"
-    elif near_high and momentum_phase == "DECELERATING":
-        position = "LATE"
-        description = "Late stage advance - risk elevated"
-        action = "Trade management, not new entries"
-        risk_reward = "unfavorable"
-    elif near_high and rsi_overbought:
-        position = "TOPPING"
-        description = "Potential top forming - extreme caution"
-        action = "Consider reducing, tighten stops"
-        risk_reward = "poor"
-    elif pct_from_52w_high < -20 and momentum_phase == "ACCELERATING":
-        position = "MID"
-        description = "Mid-trend advance - trend intact"
-        action = "Hold, add on pullbacks"
-        risk_reward = "moderate"
-    else:
-        position = "MID"
-        description = "Mid-cycle - normal trend behavior"
-        action = "Hold current position"
-        risk_reward = "moderate"
-
-    return {
-        "position": position,
-        "description": description,
-        "action": action,
-        "risk_reward": risk_reward,
-        "pct_from_high": pct_from_52w_high,
-        "pct_from_low": pct_from_52w_low,
-    }
-
-
-def generate_pro_recommendation(
+def generate_overall_assessment(
     regime: Dict[str, Any],
     momentum: Dict[str, Any],
-    volume: Dict[str, Any],
-    cycle: Dict[str, Any]
+    participation: Dict[str, Any],
+    tailwind: Dict[str, Any],
+    positioning: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
-    Generate professional-style recommendation.
+    Generate overall market assessment from 5 pillars.
 
-    Possible actions (most of the time it's NOT buy/sell):
-    - ADD: Increase position
-    - HOLD: Maintain current position
-    - REDUCE: Decrease position
-    - WAIT: Stay on sidelines
-    - TIGHTEN: Keep position but tighten stops
-    - DO NOTHING: Valid professional decision
+    Returns:
+        Dict with overall bias, key risks, and action suggestion
     """
-    regime_type = regime.get("regime", "unknown")
-    momentum_phase = momentum.get("phase", "unknown")
-    volume_conf = volume.get("confirmation", "unknown")
-    cycle_pos = cycle.get("position", "unknown")
+    # Count bullish/bearish signals
+    bullish_signals = 0
+    bearish_signals = 0
+    warnings = []
 
-    # Decision matrix
-    action = "HOLD"
-    reasoning = []
-    confidence = "moderate"
+    # Regime
+    if regime["regime"] == "uptrend":
+        bullish_signals += 2  # Regime is weighted heavily
+    elif regime["regime"] == "downtrend":
+        bearish_signals += 2
 
-    # Regime-based baseline
-    if regime_type == "BULLISH":
-        action = "HOLD"
-        reasoning.append("Regime bullish - maintain long bias")
+    # Momentum
+    if momentum["phase"] == "accelerating":
+        bullish_signals += 1
+    elif momentum["phase"] == "cooling":
+        bearish_signals += 1
+    elif momentum["phase"] == "diverging":
+        if momentum.get("divergence_type") == "bearish":
+            warnings.append("Bearish divergence detected")
+            bearish_signals += 1
+        elif momentum.get("divergence_type") == "bullish":
+            warnings.append("Bullish divergence detected")
+            bullish_signals += 1
 
-        if momentum_phase == "ACCELERATING" and volume_conf == "STRONG":
-            action = "ADD"
-            reasoning.append("Momentum accelerating with volume confirmation")
-            confidence = "high"
-        elif momentum_phase == "DECELERATING":
-            action = "HOLD"
-            reasoning.append("Momentum cooling - stop chasing, but don't sell")
-        elif momentum_phase == "DIVERGING":
-            action = "TIGHTEN"
-            reasoning.append("Divergence detected - tighten risk management")
+    # Participation
+    if participation["status"] == "confirming":
+        bullish_signals += 1
+    elif participation["status"] in ["thinning", "distribution"]:
+        bearish_signals += 1
+        if participation["status"] == "distribution":
+            warnings.append("Distribution pattern detected")
 
-    elif regime_type == "BEARISH":
-        action = "WAIT"
-        reasoning.append("Regime bearish - avoid longs")
+    # Tailwind
+    if tailwind["status"] == "supportive":
+        bullish_signals += 1
+    elif tailwind["status"] == "hostile":
+        bearish_signals += 1
 
-        if momentum_phase == "DIVERGING" and momentum.get("divergence_type") == "bullish":
-            action = "WATCH"
-            reasoning.append("Bullish divergence in downtrend - potential reversal")
-        elif volume_conf == "DIVERGENT_BULLISH":
-            action = "WATCH"
-            reasoning.append("Accumulation detected - smart money may be buying")
+    # Positioning
+    if positioning["status"] == "crowded_long":
+        warnings.append("Crowded long positioning - reversal risk")
+    elif positioning["status"] == "washed_out":
+        bullish_signals += 1  # Contrarian bullish
 
-    elif regime_type == "RANGE":
-        action = "WAIT"
-        reasoning.append("No clear trend - wait for breakout")
-        confidence = "low"
+    # Generate overall bias
+    net_signal = bullish_signals - bearish_signals
 
-    elif regime_type == "TRANSITIONAL":
-        action = "REDUCE"
-        reasoning.append("Regime changing - reduce exposure")
+    if net_signal >= 3:
+        bias = "strongly_bullish"
+        action = "Trend favorable - consider adding on pullbacks"
+    elif net_signal >= 1:
+        bias = "bullish"
+        action = "Cautiously bullish - hold positions, selective adding"
+    elif net_signal <= -3:
+        bias = "strongly_bearish"
+        action = "Trend unfavorable - avoid longs, consider reducing"
+    elif net_signal <= -1:
+        bias = "bearish"
+        action = "Cautiously bearish - reduce exposure, tighten stops"
+    else:
+        bias = "neutral"
+        action = "Mixed signals - wait for clarity, trade range"
 
-    # Cycle position adjustments
-    if cycle_pos == "LATE":
-        if action == "ADD":
-            action = "HOLD"
-            reasoning.append("Late stage - not adding at elevated levels")
-        elif action == "HOLD":
-            action = "TIGHTEN"
-            reasoning.append("Late stage advance - tighten stops")
-
-    elif cycle_pos == "EARLY":
-        if action in ["HOLD", "WAIT"] and regime_type == "BULLISH":
-            action = "ADD"
-            reasoning.append("Early stage with bullish regime - favorable entry")
-            confidence = "high"
-
-    # Volume confirmation adjustments
-    if volume_conf in ["WEAK", "WEAK_BEARISH"]:
-        if action == "ADD":
-            action = "WAIT"
-            reasoning.append("Low volume - wait for participation")
-        reasoning.append("Thin participation - move is fragile")
-
-    if volume_conf == "DIVERGENT_BEARISH" and action != "WAIT":
-        action = "REDUCE"
-        reasoning.append("Distribution detected - reduce exposure")
-
-    # Generate summary
-    summary = generate_market_summary(regime, momentum, volume, cycle, action)
+    # Adjust for warnings
+    if warnings and bias in ["strongly_bullish", "bullish"]:
+        action = f"{action}. CAUTION: {', '.join(warnings)}"
 
     return {
+        "bias": bias,
         "action": action,
-        "confidence": confidence,
-        "reasoning": reasoning,
-        "summary": summary,
-        "regime": regime_type,
-        "momentum_phase": momentum_phase,
-        "cycle_position": cycle_pos,
+        "bullish_signals": bullish_signals,
+        "bearish_signals": bearish_signals,
+        "warnings": warnings,
     }
 
 
-def generate_market_summary(
-    regime: Dict[str, Any],
-    momentum: Dict[str, Any],
-    volume: Dict[str, Any],
-    cycle: Dict[str, Any],
-    action: str
-) -> str:
-    """
-    Generate a professional market summary label.
-
-    Examples:
-    - "Bullish trend, momentum cooling - hold, stop chasing"
-    - "Late-stage advance, risk elevated - tighten stops"
-    - "Consolidation within uptrend - wait for breakout"
-    - "Distribution risk rising - consider reducing"
-    """
-    regime_type = regime.get("regime", "unknown")
-    momentum_phase = momentum.get("phase", "unknown")
-    cycle_pos = cycle.get("position", "unknown")
-    volume_conf = volume.get("confirmation", "unknown")
-
-    # Build summary
-    parts = []
-
-    # Regime part
-    if regime_type == "BULLISH":
-        parts.append("Bullish trend")
-    elif regime_type == "BEARISH":
-        parts.append("Bearish trend")
-    elif regime_type == "RANGE":
-        parts.append("Range-bound")
-    elif regime_type == "TRANSITIONAL":
-        parts.append("Regime transitioning")
-
-    # Momentum part
-    if momentum_phase == "ACCELERATING":
-        parts.append("momentum building")
-    elif momentum_phase == "DECELERATING":
-        parts.append("momentum cooling")
-    elif momentum_phase == "DIVERGING":
-        parts.append("divergence warning")
-    elif momentum_phase == "STEADY":
-        parts.append("momentum stable")
-
-    # Risk/cycle part
-    if cycle_pos == "LATE":
-        parts.append("late-stage")
-    elif cycle_pos == "EARLY":
-        parts.append("early-stage")
-    elif cycle_pos == "TOPPING":
-        parts.append("topping risk")
-    elif cycle_pos == "BOTTOMING":
-        parts.append("bottoming pattern")
-
-    # Volume part (only if notable)
-    if volume_conf == "DIVERGENT_BEARISH":
-        parts.append("distribution detected")
-    elif volume_conf == "DIVERGENT_BULLISH":
-        parts.append("accumulation detected")
-    elif volume_conf in ["WEAK", "WEAK_BEARISH"]:
-        parts.append("thin participation")
-
-    # Join parts
-    if len(parts) >= 2:
-        summary = f"{parts[0]}, {', '.join(parts[1:])}"
-    else:
-        summary = parts[0] if parts else "Insufficient data"
-
-    # Add action
-    action_labels = {
-        "ADD": "consider adding",
-        "HOLD": "hold position",
-        "REDUCE": "consider reducing",
-        "WAIT": "stay patient",
-        "TIGHTEN": "tighten stops",
-        "WATCH": "watch for confirmation",
-        "DO NOTHING": "no action needed"
-    }
-
-    action_label = action_labels.get(action, action.lower())
-    summary = f"{summary} - {action_label}"
-
-    return summary
-
-
+# Legacy function for backwards compatibility
 def get_full_market_analysis(
     indicators: Dict[str, Any],
     macro_bias: str = "neutral"
 ) -> Dict[str, Any]:
     """
-    Run the complete professional analysis framework.
+    Legacy wrapper for backwards compatibility.
 
-    Returns comprehensive analysis with:
-    - Regime classification
-    - Momentum phase
-    - Volume confirmation
-    - Cycle position
-    - Pro recommendation
+    Use get_five_pillar_analysis() for the new methodology.
     """
-    # Extract needed values
-    price = indicators.get("spot_price") or indicators.get("last_close")
-    sma200 = indicators.get("sma200")
-    sma50 = indicators.get("sma50")
-    trend = indicators.get("trend", "unknown")
-    rsi = indicators.get("rsi14")
+    # Create a minimal tailwind dict from macro_bias
+    tailwind = {
+        "status": "supportive" if macro_bias == "bullish" else "hostile" if macro_bias == "bearish" else "neutral",
+        "description": f"Macro bias: {macro_bias}",
+    }
 
-    # RSI momentum data
-    rsi_momentum = indicators.get("rsi_momentum", {})
-    rsi_change = rsi_momentum.get("change", 0)
-    rsi_direction = rsi_momentum.get("direction", "flat")
+    result = get_five_pillar_analysis(indicators, tailwind, None)
 
-    # MACD data
-    macd_momentum = indicators.get("macd_momentum", {})
-    macd_histogram = macd_momentum.get("histogram", 0)
-    macd_hist_change = macd_momentum.get("histogram_change", 0)
-    macd_above_zero = macd_momentum.get("above_zero", False)
-
-    # Volume data
-    volume_ratio = indicators.get("volume_ratio")
-    volume_signal = indicators.get("volume_signal", "N/A")
-    obv_momentum = indicators.get("obv_momentum", {})
-    obv_direction = obv_momentum.get("direction", "neutral")
-    obv_divergence = obv_momentum.get("divergence")
-
-    # Price levels
-    pct_from_52w_low = indicators.get("pct_from_52w_low", 0)
-    pct_from_52w_high = indicators.get("pct_from_52w_high", 0)
-
-    # Run analysis
-    regime = classify_regime(price, sma200, sma50, trend, rsi, macro_bias)
-
-    # Determine price direction for volume analysis
-    if trend == "uptrend":
-        price_direction = "up"
-    elif trend == "downtrend":
-        price_direction = "down"
-    else:
-        price_direction = "flat"
-
-    momentum = analyze_momentum_phase(
-        rsi, rsi_change, rsi_direction,
-        macd_histogram, macd_hist_change, macd_above_zero,
-        trend
-    )
-
-    volume = analyze_volume_confirmation(
-        volume_ratio, volume_signal,
-        obv_direction, obv_divergence,
-        price_direction
-    )
-
-    cycle = detect_cycle_position(
-        pct_from_52w_low, pct_from_52w_high,
-        rsi, momentum.get("phase", "unknown"),
-        volume.get("confirmation", "unknown")
-    )
-
-    recommendation = generate_pro_recommendation(regime, momentum, volume, cycle)
+    # Map to legacy format
+    regime = result["regime"]
+    momentum = result["momentum"]
+    participation = result["participation"]
+    assessment = result["assessment"]
 
     return {
-        "regime": regime,
-        "momentum": momentum,
-        "volume": volume,
-        "cycle": cycle,
-        "recommendation": recommendation,
-        "summary": recommendation.get("summary", "Analysis unavailable"),
+        "regime": {
+            "regime": regime["regime"].upper(),
+            "confidence": "high" if regime["regime"] != "range" else "moderate",
+            "description": regime["description"],
+            "factors": [(c, "bullish" if "above" in c.lower() or "rising" in c.lower() else "bearish") for c in regime["conditions"]],
+        },
+        "momentum": {
+            "phase": momentum["phase"].upper(),
+            "risk_level": "elevated" if momentum["phase"] == "diverging" else "normal",
+            "description": momentum["description"],
+            "diverging": momentum["phase"] == "diverging",
+            "divergence_type": momentum.get("divergence_type"),
+        },
+        "volume": {
+            "confirmation": participation["status"].upper(),
+            "description": participation["description"],
+            "participation": participation["status"],
+        },
+        "cycle": {
+            "position": "MID",  # Simplified
+            "description": "See 5-pillar analysis",
+        },
+        "recommendation": {
+            "action": assessment["action"].split(" - ")[0].upper().replace(" ", "_"),
+            "confidence": "high" if abs(assessment["bullish_signals"] - assessment["bearish_signals"]) >= 3 else "moderate",
+            "reasoning": assessment.get("warnings", []),
+            "summary": assessment["action"],
+        },
+        "summary": assessment["action"],
     }

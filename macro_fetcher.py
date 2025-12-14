@@ -110,6 +110,7 @@ def fetch_yahoo_macro(ticker: str, period: str = "1mo") -> Dict[str, Any]:
 
     Returns:
         Dict with current value, change, pct_change, and history
+        Now includes 5d and 20d changes for tailwind analysis
     """
     try:
         t = yf.Ticker(ticker)
@@ -123,7 +124,25 @@ def fetch_yahoo_macro(ticker: str, period: str = "1mo") -> Dict[str, Any]:
         change = current - prev
         pct_change = (change / prev * 100) if prev != 0 else 0
 
-        # 1-week and 1-month changes
+        # 5-day change (for tailwind analysis)
+        if len(hist) >= 5:
+            val_5d_ago = float(hist["Close"].iloc[-5])
+            change_5d = current - val_5d_ago
+            pct_change_5d = ((current - val_5d_ago) / val_5d_ago * 100) if val_5d_ago != 0 else 0
+        else:
+            change_5d = 0.0
+            pct_change_5d = 0.0
+
+        # 20-day change (for tailwind analysis)
+        if len(hist) >= 20:
+            val_20d_ago = float(hist["Close"].iloc[-20])
+            change_20d = current - val_20d_ago
+            pct_change_20d = ((current - val_20d_ago) / val_20d_ago * 100) if val_20d_ago != 0 else 0
+        else:
+            change_20d = change_5d  # Use 5d if 20d not available
+            pct_change_20d = pct_change_5d
+
+        # 1-week and 1-month changes (legacy)
         week_ago_idx = max(0, len(hist) - 5)
         month_ago_idx = 0
 
@@ -135,6 +154,10 @@ def fetch_yahoo_macro(ticker: str, period: str = "1mo") -> Dict[str, Any]:
             "prev_close": prev,
             "change": change,
             "pct_change": pct_change,
+            "change_5d": change_5d,
+            "pct_change_5d": pct_change_5d,
+            "change_20d": change_20d,
+            "pct_change_20d": pct_change_20d,
             "week_change": week_change,
             "month_change": month_change,
             "high_1m": float(hist["High"].max()),
@@ -151,6 +174,7 @@ def get_real_yield() -> Dict[str, Any]:
     Get 10Y real yield (TIPS yield) - gold's #1 driver.
 
     Tries FRED first (most accurate), falls back to calculation.
+    Now includes 5d and 20d changes for tailwind analysis.
     """
     # Try FRED API first
     if FRED_API_KEY:
@@ -159,13 +183,23 @@ def get_real_yield() -> Dict[str, Any]:
             current = float(df["value"].iloc[-1])
             prev = float(df["value"].iloc[-2]) if len(df) > 1 else current
 
-            # Get 1-week ago value
+            # Get 5-day ago value
+            val_5d_ago = float(df["value"].iloc[-5]) if len(df) >= 5 else current
+            change_5d = current - val_5d_ago
+
+            # Get 20-day ago value
+            val_20d_ago = float(df["value"].iloc[-20]) if len(df) >= 20 else val_5d_ago
+            change_20d = current - val_20d_ago
+
+            # Get 1-week ago value (legacy)
             week_ago = df["value"].iloc[-5] if len(df) >= 5 else df["value"].iloc[0]
 
             return {
                 "source": "FRED",
                 "current": current,
                 "change": current - prev,
+                "change_5d": change_5d,
+                "change_20d": change_20d,
                 "week_change": current - float(week_ago),
                 "series_id": "DFII10",
             }
@@ -224,6 +258,10 @@ def get_macro_dashboard() -> Dict[str, Any]:
             "value": dxy["current"],
             "change": dxy["change"],
             "pct_change": dxy["pct_change"],
+            "change_5d": dxy.get("change_5d", 0),
+            "pct_change_5d": dxy.get("pct_change_5d", 0),
+            "change_20d": dxy.get("change_20d", 0),
+            "pct_change_20d": dxy.get("pct_change_20d", 0),
             "week_change": dxy["week_change"],
             "interpretation": "stronger" if dxy["change"] > 0 else "weaker",
             "gold_impact": "bearish" if dxy["change"] > 0 else "bullish",
@@ -338,6 +376,86 @@ def get_macro_dashboard() -> Dict[str, Any]:
     result["bearish_factors"] = bearish_count
 
     return result
+
+
+def analyze_macro_tailwind(macro_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Analyze macro tailwind status for gold/silver.
+
+    Rules (for Gold/Silver):
+    - Supportive: Real yields trending down AND USD flat/down
+    - Hostile: Real yields trending up AND USD up
+    - Neutral: Mixed signals or both flat
+
+    Args:
+        macro_data: Output from get_macro_dashboard()
+
+    Returns:
+        Dict with tailwind status and component analysis
+    """
+    indicators = macro_data.get("indicators", {})
+
+    # Get DXY data
+    dxy_data = indicators.get("dxy", {})
+    dxy_change_5d = dxy_data.get("change_5d", 0)
+    dxy_change_20d = dxy_data.get("change_20d", 0)
+
+    # Get real yield data
+    real_yield_data = indicators.get("real_yield", {})
+    ry_change_5d = real_yield_data.get("change_5d", 0)
+    ry_change_20d = real_yield_data.get("change_20d", 0)
+
+    # Determine USD trend (use 5d for short-term, 20d for confirmation)
+    # DXY rising > 0.5% = strengthening, falling < -0.5% = weakening
+    if dxy_change_5d is not None and dxy_change_20d is not None:
+        if dxy_change_5d > 0.5 or dxy_change_20d > 1.0:
+            usd_trend = "rising"
+        elif dxy_change_5d < -0.5 or dxy_change_20d < -1.0:
+            usd_trend = "falling"
+        else:
+            usd_trend = "flat"
+    else:
+        usd_trend = "unknown"
+
+    # Determine real yield trend
+    # Rising yields (>0.05) = bearish for gold, falling (<-0.05) = bullish
+    if ry_change_5d is not None and ry_change_20d is not None:
+        if ry_change_5d > 0.05 or ry_change_20d > 0.1:
+            ry_trend = "rising"
+        elif ry_change_5d < -0.05 or ry_change_20d < -0.1:
+            ry_trend = "falling"
+        else:
+            ry_trend = "flat"
+    else:
+        ry_trend = "unknown"
+
+    # Classify tailwind status
+    if ry_trend == "falling" and usd_trend in ["falling", "flat"]:
+        status = "supportive"
+        description = "Real yields falling with USD flat/weak - bullish macro backdrop"
+    elif ry_trend == "rising" and usd_trend == "rising":
+        status = "hostile"
+        description = "Real yields rising with USD strengthening - bearish macro backdrop"
+    elif ry_trend == "rising" and usd_trend in ["falling", "flat"]:
+        status = "mixed"
+        description = "Real yields rising but USD weak - conflicting signals"
+    elif ry_trend == "falling" and usd_trend == "rising":
+        status = "mixed"
+        description = "Real yields falling but USD strong - conflicting signals"
+    else:
+        status = "neutral"
+        description = "Both indicators flat - no clear macro direction"
+
+    return {
+        "status": status,
+        "description": description,
+        "usd_trend": usd_trend,
+        "real_yield_trend": ry_trend,
+        "dxy_change_5d": dxy_change_5d,
+        "dxy_change_20d": dxy_change_20d,
+        "ry_change_5d": ry_change_5d,
+        "ry_change_20d": ry_change_20d,
+    }
 
 
 def get_copper_macro() -> Dict[str, Any]:

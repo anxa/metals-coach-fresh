@@ -41,6 +41,272 @@ def high_low_52w(series: pd.Series) -> Dict[str, float]:
     }
 
 
+def adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> Dict[str, pd.Series]:
+    """
+    Calculate Average Directional Index (ADX) for trend strength measurement.
+
+    ADX measures trend strength regardless of direction:
+    - ADX > 25: Strong trend
+    - ADX 18-25: Developing trend
+    - ADX < 18: Weak/no trend (range-bound)
+
+    Also returns +DI and -DI for directional bias.
+
+    Returns:
+        Dict with 'adx', 'plus_di', 'minus_di' series
+    """
+    # True Range
+    tr1 = high - low
+    tr2 = abs(high - close.shift(1))
+    tr3 = abs(low - close.shift(1))
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    # +DM and -DM (Directional Movement)
+    up_move = high - high.shift(1)
+    down_move = low.shift(1) - low
+
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+
+    plus_dm = pd.Series(plus_dm, index=high.index)
+    minus_dm = pd.Series(minus_dm, index=high.index)
+
+    # Smoothed TR, +DM, -DM using Wilder's smoothing (EMA with alpha = 1/period)
+    atr = tr.ewm(alpha=1/period, adjust=False).mean()
+    smooth_plus_dm = plus_dm.ewm(alpha=1/period, adjust=False).mean()
+    smooth_minus_dm = minus_dm.ewm(alpha=1/period, adjust=False).mean()
+
+    # +DI and -DI
+    plus_di = 100 * smooth_plus_dm / atr
+    minus_di = 100 * smooth_minus_dm / atr
+
+    # DX (Directional Index)
+    dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+
+    # ADX is smoothed DX
+    adx_series = dx.ewm(alpha=1/period, adjust=False).mean()
+
+    return {
+        "adx": adx_series,
+        "plus_di": plus_di,
+        "minus_di": minus_di,
+    }
+
+
+def sma_slope(sma_series: pd.Series, lookback: int = 20) -> float:
+    """
+    Calculate the slope of an SMA over a lookback period.
+
+    Returns:
+        Slope value (positive = rising, negative = falling)
+        Normalized as percentage change over the lookback period
+    """
+    if len(sma_series.dropna()) < lookback:
+        return 0.0
+
+    recent = sma_series.dropna().iloc[-lookback:]
+    start_val = recent.iloc[0]
+    end_val = recent.iloc[-1]
+
+    if start_val == 0:
+        return 0.0
+
+    # Return as percentage change over the period
+    return ((end_val - start_val) / start_val) * 100
+
+
+def detect_swing_highs_lows(close: pd.Series, lookback: int = 2) -> Dict[str, Any]:
+    """
+    Detect swing highs and lows in price series.
+
+    A swing high is a high that is higher than the surrounding bars.
+    A swing low is a low that is lower than the surrounding bars.
+
+    Args:
+        close: Price series
+        lookback: Number of bars on each side to compare (default 2)
+
+    Returns:
+        Dict with recent swing highs/lows and their indices
+    """
+    if len(close) < lookback * 2 + 1:
+        return {"swing_highs": [], "swing_lows": []}
+
+    swing_highs = []
+    swing_lows = []
+
+    # Need lookback bars on each side, so start from lookback and end at -lookback
+    for i in range(lookback, len(close) - lookback):
+        # Check for swing high
+        is_high = True
+        is_low = True
+
+        for j in range(1, lookback + 1):
+            if close.iloc[i] <= close.iloc[i - j] or close.iloc[i] <= close.iloc[i + j]:
+                is_high = False
+            if close.iloc[i] >= close.iloc[i - j] or close.iloc[i] >= close.iloc[i + j]:
+                is_low = False
+
+        if is_high:
+            swing_highs.append({
+                "index": i,
+                "date": close.index[i],
+                "price": float(close.iloc[i])
+            })
+        if is_low:
+            swing_lows.append({
+                "index": i,
+                "date": close.index[i],
+                "price": float(close.iloc[i])
+            })
+
+    return {
+        "swing_highs": swing_highs,
+        "swing_lows": swing_lows,
+    }
+
+
+def detect_divergence(
+    close: pd.Series,
+    indicator: pd.Series,
+    lookback: int = 30
+) -> Dict[str, Any]:
+    """
+    Detect price/indicator divergence using swing highs and lows.
+
+    Bearish divergence: Price higher high + Indicator lower high
+    Bullish divergence: Price lower low + Indicator higher low
+
+    Args:
+        close: Price series
+        indicator: Indicator series (RSI, MACD, etc.)
+        lookback: Number of bars to analyze
+
+    Returns:
+        Dict with divergence type and details
+    """
+    if len(close) < lookback or len(indicator) < lookback:
+        return {"divergence": None, "type": None}
+
+    # Get recent data
+    recent_close = close.iloc[-lookback:]
+    recent_indicator = indicator.iloc[-lookback:]
+
+    # Detect swings in both
+    price_swings = detect_swing_highs_lows(recent_close, lookback=2)
+    indicator_swings = detect_swing_highs_lows(recent_indicator, lookback=2)
+
+    # Check for bearish divergence (price higher high, indicator lower high)
+    price_highs = price_swings["swing_highs"]
+    indicator_highs = indicator_swings["swing_highs"]
+
+    if len(price_highs) >= 2 and len(indicator_highs) >= 2:
+        # Compare last two swing highs
+        if (price_highs[-1]["price"] > price_highs[-2]["price"] and
+            indicator_highs[-1]["price"] < indicator_highs[-2]["price"]):
+            return {
+                "divergence": "bearish",
+                "type": "regular",
+                "description": "Price making higher highs while indicator making lower highs",
+                "price_high_1": price_highs[-2]["price"],
+                "price_high_2": price_highs[-1]["price"],
+                "indicator_high_1": indicator_highs[-2]["price"],
+                "indicator_high_2": indicator_highs[-1]["price"],
+            }
+
+    # Check for bullish divergence (price lower low, indicator higher low)
+    price_lows = price_swings["swing_lows"]
+    indicator_lows = indicator_swings["swing_lows"]
+
+    if len(price_lows) >= 2 and len(indicator_lows) >= 2:
+        # Compare last two swing lows
+        if (price_lows[-1]["price"] < price_lows[-2]["price"] and
+            indicator_lows[-1]["price"] > indicator_lows[-2]["price"]):
+            return {
+                "divergence": "bullish",
+                "type": "regular",
+                "description": "Price making lower lows while indicator making higher lows",
+                "price_low_1": price_lows[-2]["price"],
+                "price_low_2": price_lows[-1]["price"],
+                "indicator_low_1": indicator_lows[-2]["price"],
+                "indicator_low_2": indicator_lows[-1]["price"],
+            }
+
+    return {"divergence": None, "type": None}
+
+
+def up_down_volume_ratio(
+    close: pd.Series,
+    volume: pd.Series,
+    lookback: int = 10
+) -> Dict[str, Any]:
+    """
+    Calculate volume ratio on up days vs down days.
+
+    This tells us if volume is higher on advancing days (bullish)
+    or declining days (bearish).
+
+    Args:
+        close: Close price series
+        volume: Volume series
+        lookback: Number of days to analyze
+
+    Returns:
+        Dict with up_volume, down_volume, and ratio
+    """
+    if len(close) < lookback + 1 or len(volume) < lookback:
+        return {"error": "insufficient data"}
+
+    # Calculate daily returns
+    returns = close.pct_change()
+
+    # Get recent data
+    recent_returns = returns.iloc[-lookback:]
+    recent_volume = volume.iloc[-lookback:]
+
+    # Separate up and down days
+    up_mask = recent_returns > 0
+    down_mask = recent_returns < 0
+
+    up_volume = recent_volume[up_mask].sum() if up_mask.any() else 0
+    down_volume = recent_volume[down_mask].sum() if down_mask.any() else 0
+    up_days = up_mask.sum()
+    down_days = down_mask.sum()
+
+    # Average volume per up day vs per down day
+    avg_up_vol = up_volume / up_days if up_days > 0 else 0
+    avg_down_vol = down_volume / down_days if down_days > 0 else 0
+
+    # Ratio of average up-day volume to average down-day volume
+    if avg_down_vol > 0:
+        vol_ratio = avg_up_vol / avg_down_vol
+    else:
+        vol_ratio = 2.0 if avg_up_vol > 0 else 1.0
+
+    # Interpretation
+    if vol_ratio > 1.3:
+        interpretation = "strong_buying"  # Much more volume on up days
+    elif vol_ratio > 1.1:
+        interpretation = "buying"
+    elif vol_ratio < 0.7:
+        interpretation = "strong_selling"  # Much more volume on down days
+    elif vol_ratio < 0.9:
+        interpretation = "selling"
+    else:
+        interpretation = "neutral"
+
+    return {
+        "up_volume": float(up_volume),
+        "down_volume": float(down_volume),
+        "up_days": int(up_days),
+        "down_days": int(down_days),
+        "avg_up_vol": float(avg_up_vol),
+        "avg_down_vol": float(avg_down_vol),
+        "vol_ratio": float(vol_ratio),
+        "interpretation": interpretation,
+    }
+
+
 def all_time_high(series: pd.Series) -> float:
     """Calculate all-time high from full history."""
     return float(series.dropna().max())
@@ -692,6 +958,71 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
         out["avg_volume_20d"] = None
         out["volume_ratio"] = None
         out["volume_signal"] = "no data"
+
+    # === NEW PROFESSIONAL INDICATORS ===
+
+    # ADX (Average Directional Index) for trend strength
+    if "High" in df.columns and "Low" in df.columns and len(close) >= 28:
+        adx_data = adx(df["High"], df["Low"], close, period=14)
+        out["adx"] = float(adx_data["adx"].iloc[-1])
+        out["plus_di"] = float(adx_data["plus_di"].iloc[-1])
+        out["minus_di"] = float(adx_data["minus_di"].iloc[-1])
+        out["adx_series"] = adx_data["adx"]
+    else:
+        out["adx"] = None
+        out["plus_di"] = None
+        out["minus_di"] = None
+        out["adx_series"] = None
+
+    # SMA50 slope over 20 days
+    if len(close) >= 70:  # Need 50 for SMA + 20 for slope
+        sma50_series = sma(close, 50)
+        out["sma50_slope"] = sma_slope(sma50_series, lookback=20)
+        out["sma50_series"] = sma50_series
+    else:
+        out["sma50_slope"] = 0.0
+        out["sma50_series"] = None
+
+    # RSI divergence detection
+    if len(close) >= 30:
+        rsi_series = rsi(close, 14)
+        rsi_div = detect_divergence(close, rsi_series, lookback=30)
+        out["rsi_divergence"] = rsi_div
+    else:
+        out["rsi_divergence"] = {"divergence": None, "type": None}
+
+    # Up/Down volume ratio
+    if volume is not None and not volume.empty and len(close) >= 11:
+        ud_vol = up_down_volume_ratio(close, volume, lookback=10)
+        out["up_down_volume"] = ud_vol
+    else:
+        out["up_down_volume"] = {"error": "insufficient data"}
+
+    # OBV trend direction (for participation analysis)
+    if volume is not None and not volume.empty and len(close) >= 20:
+        obv_series = obv(close, volume)
+        obv_sma_20 = sma(obv_series, 20)
+
+        # OBV slope over 10 days
+        if len(obv_series) >= 10:
+            obv_recent = obv_series.iloc[-10:]
+            obv_start = obv_recent.iloc[0]
+            obv_end = obv_recent.iloc[-1]
+            if obv_start != 0:
+                out["obv_slope"] = ((obv_end - obv_start) / abs(obv_start)) * 100
+            else:
+                out["obv_slope"] = 0.0
+        else:
+            out["obv_slope"] = 0.0
+
+        # Is OBV above or below its 20-day SMA?
+        if len(obv_sma_20.dropna()) > 0:
+            out["obv_vs_sma"] = "above" if obv_series.iloc[-1] > obv_sma_20.iloc[-1] else "below"
+        else:
+            out["obv_vs_sma"] = "unknown"
+    else:
+        out["obv_slope"] = 0.0
+        out["obv_vs_sma"] = "unknown"
 
     out["history"] = df
     return out

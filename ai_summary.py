@@ -152,38 +152,61 @@ def build_market_context(
     else:
         lines.append("\nTERM STRUCTURE: Data unavailable")
 
-    # Professional Market Regime Analysis
+    # Professional 5-Pillar Analysis
     if pro_analysis and "error" not in pro_analysis:
-        lines.append("\nPROFESSIONAL REGIME ANALYSIS:")
+        lines.append("\n5-PILLAR PROFESSIONAL ANALYSIS:")
 
+        # Pillar 1: Regime
         regime = pro_analysis.get("regime", {})
-        lines.append(f"  Market Regime: {regime.get('regime', 'unknown')} ({regime.get('confidence', 'low')} confidence)")
-        lines.append(f"  Regime Description: {regime.get('description', '')}")
-        lines.append(f"  Price vs 200 SMA: {regime.get('pct_from_200sma', 0):+.1f}%")
+        lines.append(f"\n  1. REGIME: {regime.get('regime', 'unknown').upper()}")
+        lines.append(f"     {regime.get('description', '')}")
+        for cond in regime.get("conditions", []):
+            lines.append(f"     - {cond}")
+        metrics = regime.get("metrics", {})
+        if metrics:
+            lines.append(f"     ADX: {metrics.get('adx', 'N/A')}, SMA50 slope: {metrics.get('sma50_slope', 'N/A')}")
 
+        # Pillar 2: Momentum
         momentum = pro_analysis.get("momentum", {})
-        lines.append(f"\n  Momentum Phase: {momentum.get('phase', 'unknown')}")
-        lines.append(f"  Momentum Risk Level: {momentum.get('risk_level', 'unknown')}")
-        lines.append(f"  Momentum Description: {momentum.get('description', '')}")
-        if momentum.get('diverging'):
-            lines.append(f"  ⚠️ DIVERGENCE: {momentum.get('divergence_type', 'unknown').upper()}")
+        lines.append(f"\n  2. MOMENTUM: {momentum.get('phase', 'unknown').upper()}")
+        lines.append(f"     {momentum.get('description', '')}")
+        if momentum.get('divergence_type'):
+            lines.append(f"     ⚠️ DIVERGENCE: {momentum.get('divergence_type', '').upper()}")
+            lines.append(f"     Warning: {momentum.get('warning', '')}")
+        for cond in momentum.get("conditions", []):
+            lines.append(f"     - {cond}")
 
-        volume = pro_analysis.get("volume", {})
-        lines.append(f"\n  Volume Confirmation: {volume.get('confirmation', 'unknown')}")
-        lines.append(f"  Volume Description: {volume.get('description', '')}")
-        lines.append(f"  Participation: {volume.get('participation', 'unknown')}")
+        # Pillar 3: Participation
+        participation = pro_analysis.get("participation", {})
+        lines.append(f"\n  3. PARTICIPATION: {participation.get('status', 'unknown').upper()}")
+        lines.append(f"     {participation.get('description', '')}")
+        lines.append(f"     Vol ratio: {participation.get('vol_ratio', 'N/A')}, OBV trend: {participation.get('obv_trend', 'N/A')}")
+        for cond in participation.get("conditions", []):
+            lines.append(f"     - {cond}")
 
-        cycle = pro_analysis.get("cycle", {})
-        lines.append(f"\n  Cycle Position: {cycle.get('position', 'unknown')}")
-        lines.append(f"  Cycle Description: {cycle.get('description', '')}")
-        lines.append(f"  Risk/Reward: {cycle.get('risk_reward', 'unknown')}")
+        # Pillar 4: Macro Tailwind
+        tailwind = pro_analysis.get("tailwind", {})
+        lines.append(f"\n  4. MACRO TAILWIND: {tailwind.get('status', 'neutral').upper()}")
+        lines.append(f"     {tailwind.get('description', '')}")
+        for cond in tailwind.get("conditions", []):
+            lines.append(f"     - {cond}")
 
-        rec = pro_analysis.get("recommendation", {})
-        lines.append(f"\n  PRO RECOMMENDATION: {rec.get('action', 'HOLD')}")
-        lines.append(f"  Confidence: {rec.get('confidence', 'moderate')}")
-        lines.append(f"  Summary: {rec.get('summary', '')}")
-        for reason in rec.get('reasoning', []):
-            lines.append(f"    - {reason}")
+        # Pillar 5: Positioning
+        positioning = pro_analysis.get("positioning", {})
+        lines.append(f"\n  5. POSITIONING: {positioning.get('status', 'unknown').upper()}")
+        lines.append(f"     {positioning.get('description', '')}")
+        if positioning.get("warning"):
+            lines.append(f"     ⚠️ {positioning.get('warning', '')}")
+        for cond in positioning.get("conditions", []):
+            lines.append(f"     - {cond}")
+
+        # Overall Assessment
+        assessment = pro_analysis.get("assessment", {})
+        lines.append(f"\n  OVERALL ASSESSMENT: {assessment.get('bias', 'neutral').upper()}")
+        lines.append(f"  Action: {assessment.get('action', '')}")
+        lines.append(f"  Bullish signals: {assessment.get('bullish_signals', 0)} | Bearish signals: {assessment.get('bearish_signals', 0)}")
+        for warn in assessment.get("warnings", []):
+            lines.append(f"  ⚠️ {warn}")
 
     return "\n".join(lines)
 

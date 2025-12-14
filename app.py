@@ -22,10 +22,10 @@ load_dotenv()
 from alpha_vantage_fetcher import fetch_gold_price, fetch_silver_price, fetch_copper_price
 from indicators import compute_indicators
 from cot_fetcher import get_cot_summary
-from macro_fetcher import get_macro_dashboard, get_copper_macro
+from macro_fetcher import get_macro_dashboard, get_copper_macro, analyze_macro_tailwind
 from term_structure import analyze_term_structure
 from ai_summary import generate_ai_summary, get_quick_verdict, get_copper_verdict
-from market_regime import get_full_market_analysis
+from market_regime import get_full_market_analysis, get_five_pillar_analysis
 
 # === PAGE CONFIG ===
 st.set_page_config(
@@ -579,7 +579,7 @@ with st.spinner(""):
             copper_term = {"error": str(e)}
 
         progress.progress(95, text="Running professional analysis...")
-        # Professional regime analysis
+        # Professional regime analysis - old format (for backwards compatibility)
         try:
             macro_bias = macro_data.get("macro_bias", "neutral") if "error" not in macro_data else "neutral"
             gold_pro = get_full_market_analysis(gold_ind, macro_bias) if "error" not in gold_ind else {"error": "no data"}
@@ -591,6 +591,22 @@ with st.spinner(""):
             gold_pro = {"error": str(e)}
             silver_pro = {"error": str(e)}
             copper_pro = {"error": str(e)}
+
+        # NEW: 5-pillar analysis
+        try:
+            # Get macro tailwind analysis
+            macro_tailwind = analyze_macro_tailwind(macro_data) if "error" not in macro_data else {"status": "neutral"}
+
+            # Run 5-pillar analysis
+            gold_five = get_five_pillar_analysis(gold_ind, macro_tailwind, gold_cot) if "error" not in gold_ind else {"error": "no data"}
+            silver_five = get_five_pillar_analysis(silver_ind, macro_tailwind, silver_cot) if "error" not in silver_ind else {"error": "no data"}
+            # Copper uses simpler tailwind (PMI-based)
+            copper_tailwind = {"status": copper_bias, "description": f"PMI-based macro: {copper_bias}"}
+            copper_five = get_five_pillar_analysis(copper_ind, copper_tailwind, copper_cot) if "error" not in copper_ind else {"error": "no data"}
+        except Exception as e:
+            gold_five = {"error": str(e)}
+            silver_five = {"error": str(e)}
+            copper_five = {"error": str(e)}
 
         progress.progress(100, text="Complete!")
         progress.empty()
@@ -861,109 +877,138 @@ with verdict_col3:
                 emoji = signal_emoji(direction)
                 st.write(f"{emoji} **{name}:** {desc}")
 
-# === PROFESSIONAL REGIME ANALYSIS ===
+# === PROFESSIONAL 5-PILLAR ANALYSIS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 st.markdown("### 📈 Professional Market Analysis")
-st.caption("Trade transitions, not snapshots. What phase is the market in?")
+st.caption("5-pillar framework with clear rules. Trade transitions, not snapshots.")
 
-def render_pro_analysis(pro_data: dict, metal_name: str, color: str):
-    """Render professional regime analysis for a metal."""
-    if "error" in pro_data:
-        st.warning(f"{metal_name} analysis unavailable")
+
+def get_pillar_color(status: str) -> tuple:
+    """Get color and emoji for pillar status."""
+    status_lower = status.lower() if status else ""
+    if status_lower in ["uptrend", "accelerating", "confirming", "supportive", "washed_out", "light_positioning"]:
+        return "#00c853", "🟢"
+    elif status_lower in ["downtrend", "cooling", "thinning", "distribution", "hostile", "crowded_long"]:
+        return "#ff5252", "🔴"
+    elif status_lower in ["diverging", "mixed", "elevated_long"]:
+        return "#ffc107", "🟡"
+    else:
+        return "#607d8b", "⚪"
+
+
+def render_five_pillar_analysis(five_data: dict, metal_name: str, color: str):
+    """Render new 5-pillar professional analysis."""
+    if "error" in five_data:
+        st.warning(f"{metal_name} 5-pillar analysis unavailable")
         return
 
-    recommendation = pro_data.get("recommendation", {})
-    regime = pro_data.get("regime", {})
-    momentum = pro_data.get("momentum", {})
-    volume = pro_data.get("volume", {})
-    cycle = pro_data.get("cycle", {})
+    regime = five_data.get("regime", {})
+    momentum = five_data.get("momentum", {})
+    participation = five_data.get("participation", {})
+    tailwind = five_data.get("tailwind", {})
+    positioning = five_data.get("positioning", {})
+    assessment = five_data.get("assessment", {})
 
-    # Main summary box
-    action = recommendation.get("action", "HOLD")
-    summary = recommendation.get("summary", "Analysis unavailable")
-    confidence = recommendation.get("confidence", "moderate")
+    # Overall assessment banner
+    bias = assessment.get("bias", "neutral")
+    action = assessment.get("action", "No recommendation")
+    bullish_count = assessment.get("bullish_signals", 0)
+    bearish_count = assessment.get("bearish_signals", 0)
 
-    # Color based on action
-    if action in ["ADD"]:
+    if "bullish" in bias:
         box_color = "#00c853"
-        action_emoji = "🟢"
-    elif action in ["REDUCE", "TIGHTEN"]:
+        bias_emoji = "🟢"
+    elif "bearish" in bias:
         box_color = "#ff5252"
-        action_emoji = "🔴"
-    elif action in ["WAIT", "WATCH"]:
+        bias_emoji = "🔴"
+    else:
         box_color = "#ffc107"
-        action_emoji = "🟡"
-    else:  # HOLD, DO NOTHING
-        box_color = "#607d8b"
-        action_emoji = "⚪"
+        bias_emoji = "⚪"
 
     st.markdown(f"""
     <div style="background: linear-gradient(145deg, #1a2332 0%, #1e2940 100%);
                 border-radius: 12px; padding: 20px; border-left: 4px solid {color};
                 margin-bottom: 16px;">
         <div style="color: #888; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">{metal_name}</div>
-        <div style="font-size: 1.1rem; color: #fff; margin: 8px 0; font-weight: 500;">{summary}</div>
+        <div style="font-size: 1.1rem; color: #fff; margin: 8px 0; font-weight: 500;">{action}</div>
         <div style="display: flex; align-items: center; gap: 12px; margin-top: 12px;">
-            <span style="background: {box_color}; color: {'#000' if action in ['ADD'] else '#fff'};
+            <span style="background: {box_color}; color: {'#000' if 'bullish' in bias else '#fff'};
                         padding: 6px 16px; border-radius: 20px; font-weight: 600; font-size: 0.9rem;">
-                {action_emoji} {action}
+                {bias_emoji} {bias.upper().replace('_', ' ')}
             </span>
-            <span style="color: #888; font-size: 0.85rem;">Confidence: {confidence}</span>
+            <span style="color: #888; font-size: 0.85rem;">Bullish: {bullish_count} | Bearish: {bearish_count}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Detailed breakdown in expander
-    with st.expander(f"View {metal_name} Details"):
-        col1, col2 = st.columns(2)
-
-        with col1:
-            # Regime
-            regime_type = regime.get("regime", "unknown")
-            regime_conf = regime.get("confidence", "low")
-            st.markdown(f"**Regime:** {regime_type} ({regime_conf} confidence)")
-            st.caption(regime.get("description", ""))
-            if regime.get("pct_from_200sma") is not None:
-                st.caption(f"Price vs 200 SMA: {regime.get('pct_from_200sma', 0):+.1f}%")
-
-            # Momentum Phase
-            st.markdown("---")
-            phase = momentum.get("phase", "unknown")
-            risk = momentum.get("risk_level", "unknown")
-            st.markdown(f"**Momentum:** {phase}")
-            st.caption(momentum.get("description", ""))
-            st.caption(f"Risk level: {risk}")
-
-        with col2:
-            # Volume
-            vol_conf = volume.get("confirmation", "unknown")
-            st.markdown(f"**Volume:** {vol_conf}")
-            st.caption(volume.get("description", ""))
-            st.caption(f"Participation: {volume.get('participation', 'unknown')}")
-
-            # Cycle Position
-            st.markdown("---")
-            cycle_pos = cycle.get("position", "unknown")
-            st.markdown(f"**Cycle Position:** {cycle_pos}")
-            st.caption(cycle.get("description", ""))
-            st.caption(f"Risk/Reward: {cycle.get('risk_reward', 'unknown')}")
-
-        # Reasoning
+    # 5 Pillars display
+    with st.expander(f"View {metal_name} 5-Pillar Details"):
+        # Pillar 1: REGIME
+        regime_status = regime.get("regime", "unknown")
+        regime_color, regime_emoji = get_pillar_color(regime_status)
+        st.markdown(f"**1. REGIME:** {regime_emoji} `{regime_status.upper()}`")
+        st.caption(regime.get("description", ""))
+        for cond in regime.get("conditions", [])[:3]:  # Show first 3 conditions
+            st.caption(f"  • {cond}")
         st.markdown("---")
-        st.markdown("**Analysis Reasoning:**")
-        for reason in recommendation.get("reasoning", []):
-            st.write(f"• {reason}")
+
+        # Pillar 2: MOMENTUM
+        mom_phase = momentum.get("phase", "unknown")
+        mom_color, mom_emoji = get_pillar_color(mom_phase)
+        st.markdown(f"**2. MOMENTUM:** {mom_emoji} `{mom_phase.upper()}`")
+        st.caption(momentum.get("description", ""))
+        if momentum.get("divergence_type"):
+            st.warning(f"⚠️ {momentum['divergence_type'].upper()} DIVERGENCE")
+        for cond in momentum.get("conditions", [])[:3]:
+            st.caption(f"  • {cond}")
+        st.markdown("---")
+
+        # Pillar 3: PARTICIPATION
+        part_status = participation.get("status", "unknown")
+        part_color, part_emoji = get_pillar_color(part_status)
+        st.markdown(f"**3. PARTICIPATION:** {part_emoji} `{part_status.upper()}`")
+        st.caption(participation.get("description", ""))
+        for cond in participation.get("conditions", [])[:3]:
+            st.caption(f"  • {cond}")
+        st.markdown("---")
+
+        # Pillar 4: MACRO TAILWIND
+        tail_status = tailwind.get("status", "neutral")
+        tail_color, tail_emoji = get_pillar_color(tail_status)
+        st.markdown(f"**4. MACRO TAILWIND:** {tail_emoji} `{tail_status.upper()}`")
+        st.caption(tailwind.get("description", ""))
+        for cond in tailwind.get("conditions", [])[:3]:
+            st.caption(f"  • {cond}")
+        st.markdown("---")
+
+        # Pillar 5: POSITIONING
+        pos_status = positioning.get("status", "unknown")
+        pos_color, pos_emoji = get_pillar_color(pos_status)
+        st.markdown(f"**5. POSITIONING:** {pos_emoji} `{pos_status.upper()}`")
+        st.caption(positioning.get("description", ""))
+        if positioning.get("warning"):
+            st.warning(f"⚠️ {positioning['warning']}")
+        for cond in positioning.get("conditions", [])[:2]:
+            st.caption(f"  • {cond}")
+
+        # Warnings
+        if assessment.get("warnings"):
+            st.markdown("---")
+            st.markdown("**⚠️ Key Warnings:**")
+            for warn in assessment["warnings"]:
+                st.warning(warn)
+
 
 pro_col1, pro_col2, pro_col3 = st.columns(3)
 
 with pro_col1:
-    render_pro_analysis(gold_pro, "GOLD", "#FFD700")
+    render_five_pillar_analysis(gold_five, "GOLD", "#FFD700")
 
 with pro_col2:
-    render_pro_analysis(silver_pro, "SILVER", "#C0C0C0")
+    render_five_pillar_analysis(silver_five, "SILVER", "#C0C0C0")
 
 with pro_col3:
-    render_pro_analysis(copper_pro, "COPPER", "#B87333")
+    render_five_pillar_analysis(copper_five, "COPPER", "#B87333")
 
 # === MACRO DRIVERS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
@@ -1289,7 +1334,7 @@ with ai_col1:
                 "Gold", gold_price,
                 gold_ind if "error" not in gold_ind else {},
                 gold_cot, macro_data, gold_term,
-                gold_pro if "error" not in gold_pro else None
+                gold_five if "error" not in gold_five else None  # Use 5-pillar analysis
             )
             if gold_analysis:
                 st.markdown(gold_analysis)
@@ -1303,7 +1348,7 @@ with ai_col2:
                 "Silver", silver_price,
                 silver_ind if "error" not in silver_ind else {},
                 silver_cot, macro_data, silver_term,
-                silver_pro if "error" not in silver_pro else None
+                silver_five if "error" not in silver_five else None  # Use 5-pillar analysis
             )
             if silver_analysis:
                 st.markdown(silver_analysis)
@@ -1317,7 +1362,7 @@ with ai_col3:
                 "Copper", copper_price,
                 copper_ind if "error" not in copper_ind else {},
                 copper_cot, copper_macro, copper_term,
-                copper_pro if "error" not in copper_pro else None
+                copper_five if "error" not in copper_five else None  # Use 5-pillar analysis
             )
             if copper_analysis:
                 st.markdown(copper_analysis)
