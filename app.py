@@ -39,6 +39,7 @@ from cme_inventory import (
     get_latest_inventory, get_inventory_state, get_inventory_signal,
     get_inventory_trend, get_all_metals_summary
 )
+from pgm_ratio import analyze_ptpd_ratio, get_ratio_signal_text
 
 # === PAGE CONFIG ===
 st.set_page_config(
@@ -1856,6 +1857,38 @@ with tab_platinum:
     else:
         st.info("CME inventory data not yet available. Runs daily at 10:30 PM ET.")
 
+    # Pt/Pd Ratio Analysis
+    st.markdown("#### ⚖️ Platinum/Palladium Ratio")
+
+    ptpd_ratio = analyze_ptpd_ratio(platinum_price, palladium_price)
+
+    if "error" not in ptpd_ratio:
+        pt_signal, pt_color, pt_emoji = get_ratio_signal_text("platinum", ptpd_ratio)
+
+        ratio_c1, ratio_c2, ratio_c3 = st.columns(3)
+        with ratio_c1:
+            st.metric("Pt/Pd Ratio", f"{ptpd_ratio['current_ratio']:.3f}")
+        with ratio_c2:
+            st.metric("5-Year Percentile", f"{ptpd_ratio['percentile']:.0f}%")
+        with ratio_c3:
+            st.metric("Platinum Relative Value", f"{pt_emoji} {pt_signal}")
+
+        # Interpretation
+        st.markdown(f"**{ptpd_ratio['interpretation']}**")
+
+        if ptpd_ratio.get('trend_description'):
+            trend_emoji = "📈" if ptpd_ratio['trend'] == "rising" else "📉" if ptpd_ratio['trend'] == "falling" else "➡️"
+            st.caption(f"{trend_emoji} {ptpd_ratio['trend_description']}")
+
+        # Chart in expander
+        with st.expander("📊 View Pt/Pd Ratio Chart (2 Years)", expanded=False):
+            chart_data = ptpd_ratio.get('chart_data')
+            if chart_data is not None and not chart_data.empty:
+                st.line_chart(chart_data, use_container_width=True)
+                st.caption(f"Mean: {ptpd_ratio['mean']:.3f} | Range: {ptpd_ratio['min']:.3f} - {ptpd_ratio['max']:.3f}")
+    else:
+        st.warning("Pt/Pd ratio data unavailable")
+
 with tab_palladium:
     render_technical_tab(palladium_ind, palladium_cot, palladium_term, "Palladium")
 
@@ -1888,6 +1921,54 @@ with tab_palladium:
             st.caption(palladium_state['interpretation'])
     else:
         st.info("CME inventory data not yet available. Runs daily at 10:30 PM ET.")
+
+    # Pt/Pd Ratio Analysis (from Palladium perspective)
+    st.markdown("#### ⚖️ Platinum/Palladium Ratio")
+
+    # Reuse the ratio data if already computed, otherwise compute
+    if 'ptpd_ratio' not in dir() or "error" in ptpd_ratio:
+        ptpd_ratio = analyze_ptpd_ratio(platinum_price, palladium_price)
+
+    if "error" not in ptpd_ratio:
+        pd_signal, pd_color, pd_emoji = get_ratio_signal_text("palladium", ptpd_ratio)
+
+        ratio_c1, ratio_c2, ratio_c3 = st.columns(3)
+        with ratio_c1:
+            st.metric("Pt/Pd Ratio", f"{ptpd_ratio['current_ratio']:.3f}")
+        with ratio_c2:
+            st.metric("5-Year Percentile", f"{ptpd_ratio['percentile']:.0f}%")
+        with ratio_c3:
+            st.metric("Palladium Relative Value", f"{pd_emoji} {pd_signal}")
+
+        # Interpretation (inverted for palladium perspective)
+        if ptpd_ratio['palladium_signal'] == "cheap":
+            pd_interpretation = "Palladium historically cheap vs Platinum - potential value opportunity"
+        elif ptpd_ratio['palladium_signal'] == "expensive":
+            pd_interpretation = "Palladium historically expensive vs Platinum - elevated valuation"
+        else:
+            pd_interpretation = "Ratio near historical average - no strong relative value signal"
+
+        st.markdown(f"**{pd_interpretation}**")
+
+        if ptpd_ratio.get('trend_description'):
+            # Invert trend description for palladium
+            if ptpd_ratio['trend'] == "rising":
+                pd_trend = "Palladium weakening vs Platinum"
+            elif ptpd_ratio['trend'] == "falling":
+                pd_trend = "Palladium strengthening vs Platinum"
+            else:
+                pd_trend = "Ratio stable over past 20 days"
+            trend_emoji = "📉" if ptpd_ratio['trend'] == "rising" else "📈" if ptpd_ratio['trend'] == "falling" else "➡️"
+            st.caption(f"{trend_emoji} {pd_trend}")
+
+        # Chart in expander
+        with st.expander("📊 View Pt/Pd Ratio Chart (2 Years)", expanded=False):
+            chart_data = ptpd_ratio.get('chart_data')
+            if chart_data is not None and not chart_data.empty:
+                st.line_chart(chart_data, use_container_width=True)
+                st.caption(f"Mean: {ptpd_ratio['mean']:.3f} | Range: {ptpd_ratio['min']:.3f} - {ptpd_ratio['max']:.3f}")
+    else:
+        st.warning("Pt/Pd ratio data unavailable")
 
 # === DETAILED AI ANALYSIS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
