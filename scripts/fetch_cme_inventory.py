@@ -107,6 +107,8 @@ def parse_copper_xls(content: bytes) -> List[Dict]:
     Parse Copper Stocks XLS file.
 
     Returns list of dicts, one per warehouse (including GRAND_TOTAL).
+    Structure: Location headers, then Registered/Eligible/Total rows for each.
+    Summary rows: "Total Registered", "Total Eligible", "TOTAL COPPER"
     """
     records = []
 
@@ -145,9 +147,13 @@ def parse_copper_xls(content: bytes) -> List[Dict]:
             return []
 
         # Parse warehouse data
-        # Structure: Each warehouse has location name row, then Registered/Eligible/Total rows
         current_warehouse = None
         warehouse_data = {}
+
+        # Known warehouse names
+        WAREHOUSE_NAMES = ["BALTIMORE", "DETROIT", "EL PASO", "NEW ORLEANS",
+                          "CHICAGO", "ST LOUIS", "TUCSON", "OWENSBORO",
+                          "SALT LAKE CITY", "NEW YORK", "LOS ANGELES"]
 
         for row_idx in range(header_row + 1, sheet.nrows):
             first_cell = str(sheet.cell_value(row_idx, 0)).strip()
@@ -159,18 +165,40 @@ def parse_copper_xls(content: bytes) -> List[Dict]:
             # Skip disclaimer rows at the bottom
             if "information in this report" in first_cell.lower():
                 break
-            if "disclaimer" in first_cell.lower():
-                break
             if "questions regarding" in first_cell.lower():
                 break
 
             first_cell_upper = first_cell.upper()
 
+            # Check for TOTAL COPPER / Total Registered / Total Eligible summary rows
+            if "TOTAL COPPER" in first_cell_upper or "TOTAL REGISTERED" in first_cell_upper or "TOTAL ELIGIBLE" in first_cell_upper:
+                # This is a summary row - create GRAND_TOTAL entry
+                if "GRAND_TOTAL" not in warehouse_data:
+                    warehouse_data["GRAND_TOTAL"] = {
+                        "registered": None,
+                        "eligible": None,
+                        "total": None,
+                        "received": None,
+                        "withdrawn": None,
+                        "net_change": None,
+                    }
+
+                total_today = parse_number(sheet.cell_value(row_idx, 7) if sheet.ncols > 7 else None)
+                received = parse_number(sheet.cell_value(row_idx, 3) if sheet.ncols > 3 else None)
+                net_change = parse_number(sheet.cell_value(row_idx, 5) if sheet.ncols > 5 else None)
+
+                if "REGISTERED" in first_cell_upper:
+                    warehouse_data["GRAND_TOTAL"]["registered"] = total_today
+                    warehouse_data["GRAND_TOTAL"]["received"] = received
+                    warehouse_data["GRAND_TOTAL"]["net_change"] = net_change
+                elif "ELIGIBLE" in first_cell_upper:
+                    warehouse_data["GRAND_TOTAL"]["eligible"] = total_today
+                elif "TOTAL COPPER" in first_cell_upper:
+                    warehouse_data["GRAND_TOTAL"]["total"] = total_today
+                continue
+
             # Check if this is a warehouse name (location header)
-            # Warehouse names are typically all caps, single words or city names
-            if first_cell_upper in ["BALTIMORE", "DETROIT", "EL PASO", "NEW ORLEANS",
-                                     "CHICAGO", "ST LOUIS", "TUCSON", "GRAND TOTAL",
-                                     "NEW YORK", "LOS ANGELES", "SAN FRANCISCO"]:
+            if first_cell_upper in WAREHOUSE_NAMES:
                 current_warehouse = clean_warehouse_name(first_cell)
                 warehouse_data[current_warehouse] = {
                     "registered": None,
@@ -191,9 +219,7 @@ def parse_copper_xls(content: bytes) -> List[Dict]:
                 # 0: Label, 1: empty?, 2: PREV TOTAL, 3: RECEIVED, 4: WITHDRAWN,
                 # 5: NET CHANGE, 6: ADJUSTMENT, 7: TOTAL TODAY
 
-                # Try to find the right columns
-                total_today = parse_number(sheet.cell_value(row_idx, 7) if sheet.ncols > 7
-                                          else sheet.cell_value(row_idx, sheet.ncols - 1))
+                total_today = parse_number(sheet.cell_value(row_idx, 7) if sheet.ncols > 7 else None)
                 received = parse_number(sheet.cell_value(row_idx, 3) if sheet.ncols > 3 else None)
                 withdrawn = parse_number(sheet.cell_value(row_idx, 4) if sheet.ncols > 4 else None)
                 net_change = parse_number(sheet.cell_value(row_idx, 5) if sheet.ncols > 5 else None)
@@ -212,6 +238,10 @@ def parse_copper_xls(content: bytes) -> List[Dict]:
         fetched_at = datetime.now().isoformat()
 
         for warehouse, data in warehouse_data.items():
+            # Skip warehouses with no data
+            if data["registered"] is None and data["eligible"] is None and data["total"] is None:
+                continue
+
             records.append({
                 "date": activity_date,
                 "metal": "copper",
@@ -241,6 +271,7 @@ def parse_platinum_palladium_xls(content: bytes) -> List[Dict]:
     Parse PA-PL Stock Report XLS file.
 
     Returns list of dicts for both platinum and palladium.
+    Structure: Each metal section has depositories, then TOTAL REGISTERED/ELIGIBLE/COMBINED TOTAL rows.
     """
     records = []
 
@@ -248,34 +279,17 @@ def parse_platinum_palladium_xls(content: bytes) -> List[Dict]:
         workbook = xlrd.open_workbook(file_contents=content)
         sheet = workbook.sheet_by_index(0)
 
-        # Find dates
-        report_date = None
-        activity_date = None
-
-        for row_idx in range(min(20, sheet.nrows)):
-            row_text = " ".join(str(sheet.cell_value(row_idx, col))
-                               for col in range(sheet.ncols))
-
-            if "Report Date:" in row_text and not report_date:
-                report_date = parse_date_from_text(row_text)
-            if "Activity Date:" in row_text and not activity_date:
-                activity_date = parse_date_from_text(row_text)
-
-        if not activity_date:
-            print("Could not find activity date in platinum/palladium XLS")
-            return []
-
         fetched_at = datetime.now().isoformat()
 
         # Find sections for each metal
-        for metal in ["palladium", "platinum"]:
+        for metal in ["platinum", "palladium"]:
             metal_upper = metal.upper()
 
             # Find the metal section header
             metal_start = None
             for row_idx in range(sheet.nrows):
                 cell_value = str(sheet.cell_value(row_idx, 0)).strip().upper()
-                if metal_upper in cell_value:
+                if cell_value == metal_upper:
                     metal_start = row_idx
                     break
 
@@ -283,69 +297,116 @@ def parse_platinum_palladium_xls(content: bytes) -> List[Dict]:
                 print(f"Could not find {metal} section")
                 continue
 
-            # Parse similar to copper, but only until next metal section or end
-            current_warehouse = None
-            warehouse_data = {}
+            # Find dates for this metal section (they appear right after metal name)
+            report_date = None
+            activity_date = None
+            for row_idx in range(metal_start, min(metal_start + 5, sheet.nrows)):
+                row_text = " ".join(str(sheet.cell_value(row_idx, col))
+                                   for col in range(sheet.ncols))
+                if "Report Date:" in row_text and not report_date:
+                    report_date = parse_date_from_text(row_text)
+                if "Activity Date:" in row_text and not activity_date:
+                    activity_date = parse_date_from_text(row_text)
 
+            if not activity_date:
+                print(f"Could not find activity date for {metal}")
+                continue
+
+            # Find the end of this section (next metal or end of file)
+            section_end = sheet.nrows
             for row_idx in range(metal_start + 1, sheet.nrows):
-                first_cell = str(sheet.cell_value(row_idx, 0)).strip()
-
-                # Stop if we hit another metal section
-                if first_cell.upper() in ["PALLADIUM", "PLATINUM"] and first_cell.upper() != metal_upper:
+                cell_value = str(sheet.cell_value(row_idx, 0)).strip().upper()
+                if cell_value in ["PLATINUM", "PALLADIUM"] and cell_value != metal_upper:
+                    section_end = row_idx
                     break
+                if "information in this report" in cell_value.lower():
+                    section_end = row_idx
+                    break
+
+            # Parse depositories and totals within this section
+            current_depository = None
+            depository_data = {}
+
+            for row_idx in range(metal_start + 1, section_end):
+                first_cell = str(sheet.cell_value(row_idx, 0)).strip()
 
                 # Skip empty rows
                 if not first_cell or first_cell.lower() == 'nan':
                     continue
 
-                # Skip disclaimer rows
-                if "information in this report" in first_cell.lower():
-                    break
+                first_cell_clean = first_cell.strip()
+                first_cell_upper = first_cell_clean.upper()
 
-                first_cell_upper = first_cell.upper()
+                # Check for COMBINED TOTAL / TOTAL REGISTERED / TOTAL ELIGIBLE rows
+                if first_cell_upper in ["COMBINED TOTAL", "TOTAL REGISTERED", "TOTAL ELIGIBLE"]:
+                    # This is a summary row - create GRAND_TOTAL entry
+                    if "GRAND_TOTAL" not in depository_data:
+                        depository_data["GRAND_TOTAL"] = {
+                            "registered": None,
+                            "eligible": None,
+                            "total": None,
+                            "received": None,
+                            "withdrawn": None,
+                            "net_change": None,
+                        }
 
-                # Check if this is a warehouse/depository name
-                if first_cell_upper in ["BRINKS", "DELAWARE DEPOSITORY", "HSBC", "JP MORGAN",
-                                         "MALCA AMIT", "LOOMIS", "GRAND TOTAL", "TOTAL",
-                                         "NEW YORK", "DELAWARE"]:
-                    current_warehouse = clean_warehouse_name(first_cell)
-                    warehouse_data[current_warehouse] = {
-                        "registered": None,
-                        "eligible": None,
-                        "total": None,
-                        "received": None,
-                        "withdrawn": None,
-                        "net_change": None,
-                    }
+                    total_today = parse_number(sheet.cell_value(row_idx, 7) if sheet.ncols > 7 else None)
+                    received = parse_number(sheet.cell_value(row_idx, 3) if sheet.ncols > 3 else None)
+                    net_change = parse_number(sheet.cell_value(row_idx, 5) if sheet.ncols > 5 else None)
+
+                    if "REGISTERED" in first_cell_upper:
+                        depository_data["GRAND_TOTAL"]["registered"] = total_today
+                        depository_data["GRAND_TOTAL"]["received"] = received
+                        depository_data["GRAND_TOTAL"]["net_change"] = net_change
+                    elif "ELIGIBLE" in first_cell_upper:
+                        depository_data["GRAND_TOTAL"]["eligible"] = total_today
+                    elif "COMBINED" in first_cell_upper:
+                        depository_data["GRAND_TOTAL"]["total"] = total_today
                     continue
 
-                # Check if this is a data row
-                if current_warehouse and ("registered" in first_cell.lower() or
-                                           "eligible" in first_cell.lower() or
-                                           first_cell.lower() == "total"):
+                # Check if this is a depository name (not indented, not a data row)
+                if not first_cell.startswith("  ") and first_cell_upper not in ["DEPOSITORY", "TROY OUNCE"]:
+                    # Likely a depository name
+                    current_depository = clean_warehouse_name(first_cell)
+                    if current_depository not in depository_data:
+                        depository_data[current_depository] = {
+                            "registered": None,
+                            "eligible": None,
+                            "total": None,
+                            "received": None,
+                            "withdrawn": None,
+                            "net_change": None,
+                        }
+                    continue
 
-                    total_today = parse_number(sheet.cell_value(row_idx, 7) if sheet.ncols > 7
-                                              else sheet.cell_value(row_idx, sheet.ncols - 1))
+                # Check if this is a data row (indented: Registered/Eligible/Total)
+                if current_depository and first_cell.startswith("  "):
+                    label = first_cell.strip().lower()
+                    total_today = parse_number(sheet.cell_value(row_idx, 7) if sheet.ncols > 7 else None)
                     received = parse_number(sheet.cell_value(row_idx, 3) if sheet.ncols > 3 else None)
                     withdrawn = parse_number(sheet.cell_value(row_idx, 4) if sheet.ncols > 4 else None)
                     net_change = parse_number(sheet.cell_value(row_idx, 5) if sheet.ncols > 5 else None)
 
-                    if "registered" in first_cell.lower():
-                        warehouse_data[current_warehouse]["registered"] = total_today
-                        warehouse_data[current_warehouse]["received"] = received
-                        warehouse_data[current_warehouse]["withdrawn"] = withdrawn
-                        warehouse_data[current_warehouse]["net_change"] = net_change
-                    elif "eligible" in first_cell.lower():
-                        warehouse_data[current_warehouse]["eligible"] = total_today
-                    elif first_cell.lower() == "total":
-                        warehouse_data[current_warehouse]["total"] = total_today
+                    if "registered" in label:
+                        depository_data[current_depository]["registered"] = total_today
+                        depository_data[current_depository]["received"] = received
+                        depository_data[current_depository]["withdrawn"] = withdrawn
+                        depository_data[current_depository]["net_change"] = net_change
+                    elif "eligible" in label:
+                        depository_data[current_depository]["eligible"] = total_today
+                    elif label == "total":
+                        depository_data[current_depository]["total"] = total_today
 
             # Convert to records
-            for warehouse, data in warehouse_data.items():
+            for depository, data in depository_data.items():
+                # Skip depositories with no data
+                if data["registered"] is None and data["eligible"] is None and data["total"] is None:
+                    continue
+
                 records.append({
                     "date": activity_date,
                     "metal": metal,
-                    "warehouse": warehouse,
+                    "warehouse": depository,
                     "registered": data["registered"],
                     "eligible": data["eligible"],
                     "total": data["total"],
