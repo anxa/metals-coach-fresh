@@ -18,6 +18,8 @@ from typing import Dict, Any, Optional
 GOLD_FUTURES = "GC=F"
 SILVER_FUTURES = "SI=F"
 COPPER_FUTURES = "HG=F"
+PLATINUM_FUTURES = "PL=F"
+PALLADIUM_FUTURES = "PA=F"
 
 
 def get_futures_price(ticker: str) -> Optional[float]:
@@ -136,6 +138,10 @@ def analyze_term_structure(
         futures_ticker = SILVER_FUTURES
     elif metal_lower == "copper":
         futures_ticker = COPPER_FUTURES
+    elif metal_lower == "platinum":
+        futures_ticker = PLATINUM_FUTURES
+    elif metal_lower == "palladium":
+        futures_ticker = PALLADIUM_FUTURES
     else:
         return {"error": f"Unknown metal: {metal}"}
     futures_price = get_futures_price(futures_ticker)

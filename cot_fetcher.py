@@ -61,12 +61,14 @@ def fetch_cot_multi_year(years: list = None) -> pd.DataFrame:
 
 
 def get_metal_cot(df: pd.DataFrame, metal: str) -> pd.DataFrame:
-    """Filter COT data for a specific metal (GOLD, SILVER, or COPPER)."""
+    """Filter COT data for a specific metal (GOLD, SILVER, COPPER, PLATINUM, PALLADIUM)."""
     # Market names vary by metal - copper has a different format
     market_names = {
         "GOLD": "GOLD - COMMODITY EXCHANGE INC.",
         "SILVER": "SILVER - COMMODITY EXCHANGE INC.",
         "COPPER": "COPPER- #1 - COMMODITY EXCHANGE INC.",  # Note the dash and #1
+        "PLATINUM": "PLATINUM - NEW YORK MERCANTILE EXCHANGE",
+        "PALLADIUM": "PALLADIUM - NEW YORK MERCANTILE EXCHANGE",
     }
     market_name = market_names.get(metal.upper())
     if not market_name:

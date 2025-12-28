@@ -20,7 +20,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from alpha_vantage_fetcher import fetch_gold_price, fetch_silver_price, fetch_copper_price
+from alpha_vantage_fetcher import (
+    fetch_gold_price, fetch_silver_price, fetch_copper_price,
+    fetch_platinum_price, fetch_palladium_price
+)
 from indicators import compute_indicators
 from cot_fetcher import get_cot_summary
 from macro_fetcher import get_macro_dashboard, get_copper_macro, analyze_macro_tailwind
@@ -550,21 +553,29 @@ with st.spinner(""):
         gold_price, gold_raw = fetch_gold_price()
         silver_price, silver_raw = fetch_silver_price()
         copper_price, copper_raw = fetch_copper_price()
+        platinum_price, platinum_raw = fetch_platinum_price()
+        palladium_price, palladium_raw = fetch_palladium_price()
 
         progress.progress(25, text="Computing technical indicators...")
         gold_ind = compute_indicators("GC=F", spot_price=gold_price)
         silver_ind = compute_indicators("SI=F", spot_price=silver_price)
         copper_ind = compute_indicators("HG=F", spot_price=copper_price)
+        platinum_ind = compute_indicators("PL=F", spot_price=platinum_price)
+        palladium_ind = compute_indicators("PA=F", spot_price=palladium_price)
 
         progress.progress(45, text="Fetching COT positioning data...")
         try:
             gold_cot = get_cot_summary("GOLD")
             silver_cot = get_cot_summary("SILVER")
             copper_cot = get_cot_summary("COPPER")
+            platinum_cot = get_cot_summary("PLATINUM")
+            palladium_cot = get_cot_summary("PALLADIUM")
         except Exception as e:
             gold_cot = {"error": str(e)}
             silver_cot = {"error": str(e)}
             copper_cot = {"error": str(e)}
+            platinum_cot = {"error": str(e)}
+            palladium_cot = {"error": str(e)}
 
         progress.progress(65, text="Loading macro indicators...")
         try:
@@ -583,10 +594,14 @@ with st.spinner(""):
             gold_term = analyze_term_structure("gold", spot_price=gold_price)
             silver_term = analyze_term_structure("silver", spot_price=silver_price)
             copper_term = analyze_term_structure("copper", spot_price=copper_price)
+            platinum_term = analyze_term_structure("platinum", spot_price=platinum_price)
+            palladium_term = analyze_term_structure("palladium", spot_price=palladium_price)
         except Exception as e:
             gold_term = {"error": str(e)}
             silver_term = {"error": str(e)}
             copper_term = {"error": str(e)}
+            platinum_term = {"error": str(e)}
+            palladium_term = {"error": str(e)}
 
         progress.progress(95, text="Running professional analysis...")
         # Professional regime analysis - old format (for backwards compatibility)
@@ -1539,7 +1554,7 @@ st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 st.markdown("### 📊 Technical Analysis")
 st.markdown('<p class="metal-selector-header">👇 Select a metal to view detailed analysis</p>', unsafe_allow_html=True)
 
-tab_gold, tab_silver, tab_copper = st.tabs(["🥇 GOLD", "🥈 SILVER", "🔶 COPPER"])
+tab_gold, tab_silver, tab_copper, tab_platinum, tab_palladium = st.tabs(["🥇 GOLD", "🥈 SILVER", "🔶 COPPER", "⚪ PLATINUM", "⬜ PALLADIUM"])
 
 def render_technical_tab(ind, cot, term, metal_name):
     """Render technical analysis for a metal."""
@@ -1770,14 +1785,109 @@ with tab_copper:
         st.markdown(COPPER_INVENTORY_GUIDE)
 
     st.info("""
-**Pro Tip:** These aren't available via free APIs, but pros watch them closely:
+**Pro Tip:** LME and SHFE aren't available via free APIs, but pros watch them closely:
 
 - **[LME Copper Stocks](https://www.lme.com/en/metals/non-ferrous/lme-copper#Trading+day+summary)** - London Metal Exchange warehouse stocks
-- **[COMEX Warehouse](https://www.cmegroup.com/delivery_reports/MetalsIssuesAndStopsReport.pdf)** - CME copper stocks report
 - **[SHFE Shanghai](https://www.shfe.com.cn/en/MarketData/DelWarehouse/)** - Shanghai Futures Exchange stocks
 
 **Reading the signal:** Falling inventories = Physical tightness = BULLISH | Rising inventories = Oversupply = BEARISH
 """)
+
+    # CME Inventory (automated)
+    st.markdown("#### 📦 COMEX Warehouse Inventory")
+
+    copper_inv = get_latest_inventory("copper")
+    copper_inv_state = get_inventory_state("copper")
+
+    if copper_inv:
+        inv_c1, inv_c2, inv_c3 = st.columns(3)
+        with inv_c1:
+            st.metric(
+                "Total Inventory",
+                f"{copper_inv['total']:,} lbs" if copper_inv.get('total') else "N/A"
+            )
+        with inv_c2:
+            change_5d = copper_inv.get('change_5d_pct')
+            if change_5d is not None:
+                st.metric("5-Day Change", f"{change_5d:+.2f}%", delta_color="inverse")
+            else:
+                st.metric("5-Day Change", "N/A")
+        with inv_c3:
+            if copper_inv_state and copper_inv_state.get('state') != 'unknown':
+                st.metric("Inventory State", f"{copper_inv_state['emoji']} {copper_inv_state['state'].upper()}")
+            else:
+                st.metric("Inventory State", "Calculating...")
+
+        if copper_inv_state and copper_inv_state.get('interpretation'):
+            st.caption(copper_inv_state['interpretation'])
+    else:
+        st.info("CME inventory data not yet available. Runs daily at 10:30 PM ET.")
+
+with tab_platinum:
+    render_technical_tab(platinum_ind, platinum_cot, platinum_term, "Platinum")
+
+    # Platinum CME Inventory
+    st.markdown("#### 📦 CME Warehouse Inventory")
+
+    platinum_inv = get_latest_inventory("platinum")
+    platinum_state = get_inventory_state("platinum")
+
+    if platinum_inv:
+        inv_c1, inv_c2, inv_c3 = st.columns(3)
+        with inv_c1:
+            st.metric(
+                "Total Inventory",
+                f"{platinum_inv['total']:,} oz" if platinum_inv.get('total') else "N/A"
+            )
+        with inv_c2:
+            change_5d = platinum_inv.get('change_5d_pct')
+            if change_5d is not None:
+                st.metric("5-Day Change", f"{change_5d:+.2f}%", delta_color="inverse")
+            else:
+                st.metric("5-Day Change", "N/A")
+        with inv_c3:
+            if platinum_state and platinum_state.get('state') != 'unknown':
+                st.metric("Inventory State", f"{platinum_state['emoji']} {platinum_state['state'].upper()}")
+            else:
+                st.metric("Inventory State", "Calculating...")
+
+        if platinum_state and platinum_state.get('interpretation'):
+            st.caption(platinum_state['interpretation'])
+    else:
+        st.info("CME inventory data not yet available. Runs daily at 10:30 PM ET.")
+
+with tab_palladium:
+    render_technical_tab(palladium_ind, palladium_cot, palladium_term, "Palladium")
+
+    # Palladium CME Inventory
+    st.markdown("#### 📦 CME Warehouse Inventory")
+
+    palladium_inv = get_latest_inventory("palladium")
+    palladium_state = get_inventory_state("palladium")
+
+    if palladium_inv:
+        inv_c1, inv_c2, inv_c3 = st.columns(3)
+        with inv_c1:
+            st.metric(
+                "Total Inventory",
+                f"{palladium_inv['total']:,} oz" if palladium_inv.get('total') else "N/A"
+            )
+        with inv_c2:
+            change_5d = palladium_inv.get('change_5d_pct')
+            if change_5d is not None:
+                st.metric("5-Day Change", f"{change_5d:+.2f}%", delta_color="inverse")
+            else:
+                st.metric("5-Day Change", "N/A")
+        with inv_c3:
+            if palladium_state and palladium_state.get('state') != 'unknown':
+                st.metric("Inventory State", f"{palladium_state['emoji']} {palladium_state['state'].upper()}")
+            else:
+                st.metric("Inventory State", "Calculating...")
+
+        if palladium_state and palladium_state.get('interpretation'):
+            st.caption(palladium_state['interpretation'])
+    else:
+        st.info("CME inventory data not yet available. Runs daily at 10:30 PM ET.")
 
 # === DETAILED AI ANALYSIS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
@@ -1825,6 +1935,37 @@ with ai_col3:
             )
             if copper_analysis:
                 st.markdown(copper_analysis)
+            else:
+                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
+
+# Row 2: Platinum and Palladium
+ai_col4, ai_col5, ai_col6 = st.columns(3)
+
+with ai_col4:
+    if st.button("⚪ Generate Platinum Analysis", use_container_width=True, type="primary", key="btn_platinum_ai"):
+        with st.spinner("Claude is analyzing platinum markets..."):
+            platinum_analysis = generate_ai_summary(
+                "Platinum", platinum_price,
+                platinum_ind if "error" not in platinum_ind else {},
+                platinum_cot, macro_data, platinum_term,
+                None  # No 5-pillar for PGMs yet
+            )
+            if platinum_analysis:
+                st.markdown(platinum_analysis)
+            else:
+                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
+
+with ai_col5:
+    if st.button("⬜ Generate Palladium Analysis", use_container_width=True, type="primary", key="btn_palladium_ai"):
+        with st.spinner("Claude is analyzing palladium markets..."):
+            palladium_analysis = generate_ai_summary(
+                "Palladium", palladium_price,
+                palladium_ind if "error" not in palladium_ind else {},
+                palladium_cot, macro_data, palladium_term,
+                None  # No 5-pillar for PGMs yet
+            )
+            if palladium_analysis:
+                st.markdown(palladium_analysis)
             else:
                 st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 

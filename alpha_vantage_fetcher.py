@@ -21,6 +21,8 @@ SILVER_SPOT = "XAGUSD=X"
 GOLD_FUT = "GC=F"
 SILVER_FUT = "SI=F"
 COPPER_FUT = "HG=F"
+PLATINUM_FUT = "PL=F"
+PALLADIUM_FUT = "PA=F"
 
 
 def _try_tickers(tickers: List[tuple]) -> Tuple[Optional[float], Optional[dict]]:
@@ -145,6 +147,66 @@ def fetch_copper_price() -> Tuple[Optional[float], Optional[dict]]:
 
     # Fallback to Yahoo Finance futures
     tickers = [(COPPER_FUT, "futures")]
+    return _try_tickers(tickers)
+
+
+def fetch_platinum_price() -> Tuple[Optional[float], Optional[dict]]:
+    """Fetch platinum price: prefer Gold-API (XPT symbol), then futures on Yahoo."""
+    try:
+        url = "https://api.gold-api.com/price/XPT"
+        resp = requests.get(url, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+        price = data.get("price")
+        if price is not None:
+            timestamp = data.get("updatedAt") or datetime.now().isoformat()
+            meta = {
+                "ticker": data.get("symbol", "XPT"),
+                "data_type": "spot",
+                "source": "gold-api",
+                "timestamp": timestamp,
+                "close": float(price),
+            }
+            try:
+                append_price("XPT", timestamp, price)
+            except Exception as persist_err:
+                print(f"Failed to persist platinum snapshot: {persist_err}")
+            return float(price), meta
+    except Exception as e:
+        print(f"Gold-API (platinum) fetch failed or not available: {e}")
+
+    # Fallback to Yahoo Finance futures
+    tickers = [(PLATINUM_FUT, "futures")]
+    return _try_tickers(tickers)
+
+
+def fetch_palladium_price() -> Tuple[Optional[float], Optional[dict]]:
+    """Fetch palladium price: prefer Gold-API (XPD symbol), then futures on Yahoo."""
+    try:
+        url = "https://api.gold-api.com/price/XPD"
+        resp = requests.get(url, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+        price = data.get("price")
+        if price is not None:
+            timestamp = data.get("updatedAt") or datetime.now().isoformat()
+            meta = {
+                "ticker": data.get("symbol", "XPD"),
+                "data_type": "spot",
+                "source": "gold-api",
+                "timestamp": timestamp,
+                "close": float(price),
+            }
+            try:
+                append_price("XPD", timestamp, price)
+            except Exception as persist_err:
+                print(f"Failed to persist palladium snapshot: {persist_err}")
+            return float(price), meta
+    except Exception as e:
+        print(f"Gold-API (palladium) fetch failed or not available: {e}")
+
+    # Fallback to Yahoo Finance futures
+    tickers = [(PALLADIUM_FUT, "futures")]
     return _try_tickers(tickers)
 
 
