@@ -1,0 +1,51 @@
+name: CME Inventory Update
+
+on:
+  schedule:
+    # Run at 10:30 PM ET (3:30 AM UTC next day) Mon-Fri
+    # CME publishes reports around 5pm ET, this gives buffer time
+    - cron: '30 3 * * 2-6'  # Tue-Sat UTC = Mon-Fri ET evening
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  update-inventory:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas xlrd requests
+
+      - name: Fetch CME inventory data
+        run: python scripts/fetch_cme_inventory.py
+        continue-on-error: true  # Don't fail workflow if CME unavailable
+
+      - name: Check for changes
+        id: git-check
+        run: |
+          if [ -f data/cme_inventory.csv ]; then
+            git diff --quiet data/cme_inventory.csv 2>/dev/null || echo "changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push if changes
+        if: steps.git-check.outputs.changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/cme_inventory.csv
+          git commit -m "Update CME inventory data $(date +%Y-%m-%d)"
+          git push

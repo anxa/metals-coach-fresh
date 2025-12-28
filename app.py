@@ -32,6 +32,10 @@ from prediction_tracker import (
     auto_log_daily, update_actuals, get_accuracy_stats,
     get_recent_predictions, get_pending_count, is_market_closed
 )
+from cme_inventory import (
+    get_latest_inventory, get_inventory_state, get_inventory_signal,
+    get_inventory_trend, get_all_metals_summary
+)
 
 # === PAGE CONFIG ===
 st.set_page_config(
@@ -1317,6 +1321,153 @@ with st.expander("📊 Prediction Accuracy Dashboard", expanded=False):
                 st.info("No predictions to display yet.")
     except Exception as e:
         st.error(f"Error loading accuracy data: {str(e)}")
+
+# === CME WAREHOUSE INVENTORIES ===
+st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+st.markdown("### 📦 CME Warehouse Inventories")
+st.caption("Physical inventory levels from CME warehouses. Falling = bullish pressure, Rising = bearish pressure.")
+
+try:
+    inv_col1, inv_col2, inv_col3 = st.columns(3)
+
+    # Helper function to determine price trend from indicators
+    def get_price_trend(indicators: dict) -> str:
+        """Determine price trend from indicator data."""
+        if "error" in indicators:
+            return "flat"
+        sma50 = indicators.get("sma50")
+        sma200 = indicators.get("sma200")
+        close = indicators.get("close")
+        if close and sma50 and sma200:
+            if close > sma50 > sma200:
+                return "rising"
+            elif close < sma50 < sma200:
+                return "falling"
+        return "flat"
+
+    # Helper function to get macro state
+    def get_macro_state_for_metal(metal: str) -> str:
+        """Get macro state for signal calculation."""
+        if metal == "copper":
+            # Copper cares about industrial production
+            copper_bias = copper_macro.get("macro_bias", "neutral") if "error" not in copper_macro else "neutral"
+            if copper_bias == "bullish":
+                return "supportive"
+            elif copper_bias == "bearish":
+                return "hostile"
+            return "neutral"
+        else:
+            # Platinum/Palladium - use general macro
+            general_bias = macro_data.get("macro_bias", "neutral") if "error" not in macro_data else "neutral"
+            if general_bias == "bullish":
+                return "supportive"
+            elif general_bias == "bearish":
+                return "hostile"
+            return "neutral"
+
+    metals_config = [
+        ("copper", inv_col1, copper_ind, "#B87333"),
+        ("platinum", inv_col2, gold_ind, "#E5E4E2"),  # Use gold_ind as proxy for now
+        ("palladium", inv_col3, gold_ind, "#CED0DD"),
+    ]
+
+    for metal, col, indicators, color in metals_config:
+        with col:
+            inv = get_latest_inventory(metal)
+            state = get_inventory_state(metal)
+
+            if inv and inv.get("total"):
+                # Display total with change
+                change_5d_pct = inv.get("change_5d_pct")
+                delta_str = f"{change_5d_pct:+.1f}% (5D)" if change_5d_pct is not None else None
+
+                st.markdown(f"""
+                <div style="background: linear-gradient(145deg, #1a2332 0%, #1e2940 100%);
+                            border-radius: 12px; padding: 16px; border-left: 4px solid {color};">
+                    <div style="color: #888; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px;">{metal.upper()}</div>
+                    <div style="font-size: 1.5rem; color: #fff; font-weight: bold; margin: 4px 0;">
+                        {inv['total']:,} <span style="font-size: 0.9rem; color: #888;">tons</span>
+                    </div>
+                """, unsafe_allow_html=True)
+
+                # State badge
+                if state and state.get("state") != "unknown":
+                    st.markdown(f"""
+                    <div style="margin: 8px 0;">
+                        <span style="background: {state['color']}22; color: {state['color']};
+                                     padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;">
+                            {state['emoji']} {state['state'].upper()}
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # 5D and 20D changes
+                change_20d_pct = inv.get("change_20d_pct")
+                st.markdown(f"""
+                    <div style="display: flex; gap: 12px; margin-top: 8px;">
+                        <span style="color: {'#00c853' if change_5d_pct and change_5d_pct < 0 else '#ff5252' if change_5d_pct and change_5d_pct > 0 else '#888'}; font-size: 0.85rem;">
+                            5D: {change_5d_pct:+.1f}%
+                        </span>
+                        <span style="color: {'#00c853' if change_20d_pct and change_20d_pct < 0 else '#ff5252' if change_20d_pct and change_20d_pct > 0 else '#888'}; font-size: 0.85rem;">
+                            20D: {change_20d_pct:+.1f}%
+                        </span>
+                    </div>
+                """ if change_5d_pct is not None and change_20d_pct is not None else "", unsafe_allow_html=True)
+
+                st.markdown("</div>", unsafe_allow_html=True)
+
+                # Combined signal
+                price_trend = get_price_trend(indicators)
+                macro_state = get_macro_state_for_metal(metal)
+                signal = get_inventory_signal(metal, price_trend, macro_state)
+
+                if signal:
+                    st.markdown(f"""
+                    <div style="background: #1e2530; border-radius: 8px; padding: 10px; margin-top: 8px;">
+                        <div style="color: {signal['color']}; font-weight: bold; font-size: 0.9rem;">
+                            {signal['emoji']} {signal['title']}
+                        </div>
+                        <div style="color: #888; font-size: 0.75rem; margin-top: 4px;">
+                            {signal['description']}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div style="background: linear-gradient(145deg, #1a2332 0%, #1e2940 100%);
+                            border-radius: 12px; padding: 16px; border-left: 4px solid {color};">
+                    <div style="color: #888; font-size: 0.8rem; text-transform: uppercase;">{metal.upper()}</div>
+                    <div style="color: #666; font-size: 0.9rem; margin-top: 8px;">
+                        No data available yet.<br>
+                        <span style="font-size: 0.8rem;">Data fetched daily after 5pm ET.</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+    # Expander with trend charts and details
+    with st.expander("📈 View Inventory Trends & Details", expanded=False):
+        st.markdown("""
+        **How to interpret inventory data:**
+        - 🟢 **Drawdown** (falling): Physical demand exceeding supply - bullish pressure building
+        - 🟡 **Flat**: Market balanced - price driven by macro/speculation
+        - 🔴 **Build** (rising): Supply exceeding demand - rallies vulnerable
+
+        *"When price and inventory disagree, inventory wins — eventually."*
+        """)
+
+        trend_col1, trend_col2, trend_col3 = st.columns(3)
+
+        for metal, col in [("copper", trend_col1), ("platinum", trend_col2), ("palladium", trend_col3)]:
+            with col:
+                st.markdown(f"**{metal.title()} 30-Day Trend**")
+                trend_df = get_inventory_trend(metal, days=30)
+                if not trend_df.empty:
+                    st.line_chart(trend_df["Total"], use_container_width=True, height=150)
+                else:
+                    st.caption("Insufficient data for trend chart")
+
+except Exception as e:
+    st.info(f"CME inventory data not yet available. Data is fetched daily via GitHub Actions.")
 
 # === MACRO DRIVERS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)

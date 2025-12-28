@@ -21,6 +21,9 @@ data/*.csv
 # But include pre-computed backtest aggregates (needed for Forward Expectations)
 !data/backtest_*_agg.csv
 
+# And include CME inventory data (updated daily by GitHub Actions)
+!data/cme_inventory.csv
+
 # IDE
 .vscode/
 .idea/
