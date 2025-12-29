@@ -40,6 +40,7 @@ from cme_inventory import (
     get_inventory_trend, get_all_metals_summary
 )
 from pgm_ratio import analyze_ptpd_ratio, get_ratio_signal_text
+from price_inventory_pressure import get_current_pressure, get_pressure_table_display
 
 # === PAGE CONFIG ===
 st.set_page_config(
@@ -1824,6 +1825,49 @@ with tab_copper:
     else:
         st.info("CME inventory data not yet available. Runs daily at 10:30 PM ET.")
 
+    # Price vs Inventory Pressure Analysis
+    st.markdown("#### ⚡ Price vs Inventory Pressure")
+
+    copper_pressure = get_current_pressure("copper")
+
+    if "error" not in copper_pressure:
+        pres_c1, pres_c2, pres_c3 = st.columns(3)
+        with pres_c1:
+            st.metric(
+                "Pressure State",
+                f"{copper_pressure['state_emoji']} {copper_pressure['pressure_state']}"
+            )
+        with pres_c2:
+            price_5d = copper_pressure.get('price_pct_5d')
+            st.metric(
+                "Price 5D",
+                f"{price_5d:+.1f}%" if price_5d else "N/A",
+                copper_pressure.get('price_direction', '')
+            )
+        with pres_c3:
+            inv_5d = copper_pressure.get('inv_pct_5d')
+            st.metric(
+                "Inventory 5D",
+                f"{inv_5d:+.1f}%" if inv_5d else "N/A",
+                copper_pressure.get('inventory_direction', ''),
+                delta_color="inverse"
+            )
+
+        st.markdown(f"**{copper_pressure['state_description']}**")
+        st.caption(f"Action: {copper_pressure['state_action']}")
+
+        # Show streak if available
+        streak = copper_pressure.get('state_streak_days')
+        if streak and streak > 1:
+            st.caption(f"State persistence: {streak} consecutive days")
+
+        # Show data status if limited
+        if copper_pressure.get('data_status') == 'limited':
+            days = copper_pressure.get('days_of_inventory_data', 0)
+            st.info(f"Building history: {days}/10 days of inventory data collected. Full pressure analysis coming soon.")
+    else:
+        st.warning("Pressure analysis unavailable")
+
 with tab_platinum:
     render_technical_tab(platinum_ind, platinum_cot, platinum_term, "Platinum")
 
@@ -1888,6 +1932,47 @@ with tab_platinum:
                 st.caption(f"Mean: {ptpd_ratio['mean']:.3f} | Range: {ptpd_ratio['min']:.3f} - {ptpd_ratio['max']:.3f}")
     else:
         st.warning("Pt/Pd ratio data unavailable")
+
+    # Price vs Inventory Pressure Analysis
+    st.markdown("#### ⚡ Price vs Inventory Pressure")
+
+    platinum_pressure = get_current_pressure("platinum")
+
+    if "error" not in platinum_pressure:
+        pres_c1, pres_c2, pres_c3 = st.columns(3)
+        with pres_c1:
+            st.metric(
+                "Pressure State",
+                f"{platinum_pressure['state_emoji']} {platinum_pressure['pressure_state']}"
+            )
+        with pres_c2:
+            price_5d = platinum_pressure.get('price_pct_5d')
+            st.metric(
+                "Price 5D",
+                f"{price_5d:+.1f}%" if price_5d else "N/A",
+                platinum_pressure.get('price_direction', '')
+            )
+        with pres_c3:
+            inv_5d = platinum_pressure.get('inv_pct_5d')
+            st.metric(
+                "Inventory 5D",
+                f"{inv_5d:+.1f}%" if inv_5d else "N/A",
+                platinum_pressure.get('inventory_direction', ''),
+                delta_color="inverse"
+            )
+
+        st.markdown(f"**{platinum_pressure['state_description']}**")
+        st.caption(f"Action: {platinum_pressure['state_action']}")
+
+        streak = platinum_pressure.get('state_streak_days')
+        if streak and streak > 1:
+            st.caption(f"State persistence: {streak} consecutive days")
+
+        if platinum_pressure.get('data_status') == 'limited':
+            days = platinum_pressure.get('days_of_inventory_data', 0)
+            st.info(f"Building history: {days}/10 days of inventory data collected. Full pressure analysis coming soon.")
+    else:
+        st.warning("Pressure analysis unavailable")
 
 with tab_palladium:
     render_technical_tab(palladium_ind, palladium_cot, palladium_term, "Palladium")
@@ -1969,6 +2054,47 @@ with tab_palladium:
                 st.caption(f"Mean: {ptpd_ratio['mean']:.3f} | Range: {ptpd_ratio['min']:.3f} - {ptpd_ratio['max']:.3f}")
     else:
         st.warning("Pt/Pd ratio data unavailable")
+
+    # Price vs Inventory Pressure Analysis
+    st.markdown("#### ⚡ Price vs Inventory Pressure")
+
+    palladium_pressure = get_current_pressure("palladium")
+
+    if "error" not in palladium_pressure:
+        pres_c1, pres_c2, pres_c3 = st.columns(3)
+        with pres_c1:
+            st.metric(
+                "Pressure State",
+                f"{palladium_pressure['state_emoji']} {palladium_pressure['pressure_state']}"
+            )
+        with pres_c2:
+            price_5d = palladium_pressure.get('price_pct_5d')
+            st.metric(
+                "Price 5D",
+                f"{price_5d:+.1f}%" if price_5d else "N/A",
+                palladium_pressure.get('price_direction', '')
+            )
+        with pres_c3:
+            inv_5d = palladium_pressure.get('inv_pct_5d')
+            st.metric(
+                "Inventory 5D",
+                f"{inv_5d:+.1f}%" if inv_5d else "N/A",
+                palladium_pressure.get('inventory_direction', ''),
+                delta_color="inverse"
+            )
+
+        st.markdown(f"**{palladium_pressure['state_description']}**")
+        st.caption(f"Action: {palladium_pressure['state_action']}")
+
+        streak = palladium_pressure.get('state_streak_days')
+        if streak and streak > 1:
+            st.caption(f"State persistence: {streak} consecutive days")
+
+        if palladium_pressure.get('data_status') == 'limited':
+            days = palladium_pressure.get('days_of_inventory_data', 0)
+            st.info(f"Building history: {days}/10 days of inventory data collected. Full pressure analysis coming soon.")
+    else:
+        st.warning("Pressure analysis unavailable")
 
 # === DETAILED AI ANALYSIS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
