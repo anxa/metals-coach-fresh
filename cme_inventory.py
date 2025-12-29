@@ -2,7 +2,7 @@
 CME Inventory Data Module
 
 Provides functions to load, analyze, and generate signals from CME warehouse
-inventory data for Copper, Platinum, and Palladium.
+inventory data for Gold, Silver, Copper, Platinum, and Palladium.
 
 Implements the analytical framework from inventory_data.md:
 - Inventory is a constraint, not a signal
@@ -12,9 +12,9 @@ Implements the analytical framework from inventory_data.md:
 Usage:
     from cme_inventory import get_latest_inventory, get_inventory_state, get_inventory_signal
 
-    copper = get_latest_inventory("copper")
-    state = get_inventory_state("copper")
-    signal = get_inventory_signal("copper", price_trend="rising", macro_state="supportive")
+    gold = get_latest_inventory("gold")
+    state = get_inventory_state("gold")
+    signal = get_inventory_signal("gold", price_trend="rising", macro_state="supportive")
 """
 import pandas as pd
 from pathlib import Path
@@ -83,7 +83,7 @@ def get_latest_inventory(metal: str) -> Optional[Dict]:
     Get most recent inventory data for a metal.
 
     Args:
-        metal: "copper", "platinum", or "palladium"
+        metal: "gold", "silver", "copper", "platinum", or "palladium"
 
     Returns:
         Dict with latest inventory data including 5D/20D changes, or None if not available.
@@ -204,7 +204,7 @@ def get_inventory_signal(
     Implements the decision matrix from inventory_data.md.
 
     Args:
-        metal: "copper", "platinum", or "palladium"
+        metal: "gold", "silver", "copper", "platinum", or "palladium"
         price_trend: "rising", "flat", or "falling"
         macro_state: "supportive", "neutral", or "hostile"
 
@@ -314,7 +314,7 @@ def get_inventory_trend(metal: str, days: int = 30) -> pd.DataFrame:
     Get inventory trend for charting.
 
     Args:
-        metal: "copper", "platinum", or "palladium"
+        metal: "gold", "silver", "copper", "platinum", or "palladium"
         days: Number of days to include
 
     Returns:
@@ -343,7 +343,7 @@ def get_warehouse_breakdown(metal: str, date: str = None) -> pd.DataFrame:
     Get per-warehouse breakdown for a specific date.
 
     Args:
-        metal: "copper", "platinum", or "palladium"
+        metal: "gold", "silver", "copper", "platinum", or "palladium"
         date: Specific date (YYYY-MM-DD) or None for latest
 
     Returns:
@@ -381,7 +381,7 @@ def get_all_metals_summary() -> List[Dict]:
     """
     summaries = []
 
-    for metal in ["copper", "platinum", "palladium"]:
+    for metal in ["gold", "silver", "copper", "platinum", "palladium"]:
         inv = get_latest_inventory(metal)
         state = get_inventory_state(metal)
 
@@ -399,7 +399,7 @@ if __name__ == "__main__":
     # Test functions
     print("=== CME Inventory Module Test ===\n")
 
-    for metal in ["copper", "platinum", "palladium"]:
+    for metal in ["gold", "silver", "copper", "platinum", "palladium"]:
         print(f"\n--- {metal.upper()} ---")
 
         inv = get_latest_inventory(metal)

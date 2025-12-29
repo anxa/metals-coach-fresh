@@ -5,3 +5,5 @@ requests
 anthropic
 xlrd
 pytz
+plotly
+beautifulsoup4

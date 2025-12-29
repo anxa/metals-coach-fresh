@@ -15,6 +15,7 @@ Run with:
 """
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -42,6 +43,8 @@ from cme_inventory import (
 from pgm_ratio import analyze_ptpd_ratio, get_ratio_signal_text
 from price_inventory_pressure import get_current_pressure, get_pressure_table_display
 from daily_changes import get_all_changes, format_changes_html
+from data_store import get_yesterday_spot_close, get_spot_high_and_days
+from news_fetcher import fetch_all_news
 
 # === PAGE CONFIG ===
 st.set_page_config(
@@ -125,18 +128,29 @@ def check_password():
 if not check_password():
     st.stop()
 
-# === CUSTOM CSS FOR PROFESSIONAL STYLING ===
+# === CUSTOM CSS FOR PROFESSIONAL STYLING (GLASSMORPHISM) ===
 st.markdown("""
 <style>
     /* ===== FORCE DARK THEME EVERYWHERE ===== */
     :root {
         color-scheme: dark !important;
+        --glass-bg: rgba(30, 37, 48, 0.6);
+        --glass-border: rgba(255, 255, 255, 0.1);
+        --glass-highlight: rgba(255, 255, 255, 0.05);
+        --gold: #FFD700;
+        --silver: #C0C0C0;
+        --copper: #B87333;
+        --platinum: #E5E4E2;
+        --palladium: #CED0DD;
+        --bullish: #00c853;
+        --bearish: #ff5252;
+        --neutral: #ffc107;
     }
 
     /* Main background - force dark on all devices */
     .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"],
     .main, .block-container, [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0e1117 0%, #1a1f2e 100%) !important;
+        background: linear-gradient(180deg, #0a0d12 0%, #111620 50%, #0e1117 100%) !important;
         color: #ffffff !important;
     }
 
@@ -155,19 +169,25 @@ st.markdown("""
 
     .stSelectbox [data-baseweb="select"],
     .stTextInput input, .stNumberInput input {
-        background-color: #1e2530 !important;
+        background: var(--glass-bg) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
         color: #ffffff !important;
-        border-color: #444 !important;
+        border: 1px solid var(--glass-border) !important;
+        border-radius: 12px !important;
     }
 
-    /* Tabs styling - prominent metal selector */
+    /* ===== GLASSMORPHISM TABS ===== */
     .stTabs [data-baseweb="tab-list"] {
-        background-color: #1e2530 !important;
-        border-radius: 12px;
+        background: var(--glass-bg) !important;
+        backdrop-filter: blur(20px) !important;
+        -webkit-backdrop-filter: blur(20px) !important;
+        border-radius: 16px;
         padding: 8px !important;
         gap: 8px !important;
         justify-content: center !important;
-        border: 2px solid #333 !important;
+        border: 1px solid var(--glass-border) !important;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     }
 
     .stTabs [data-baseweb="tab"] {
@@ -175,22 +195,22 @@ st.markdown("""
         font-size: 1.1rem !important;
         font-weight: 600 !important;
         padding: 12px 32px !important;
-        border-radius: 8px !important;
-        transition: all 0.2s ease !important;
+        border-radius: 12px !important;
+        transition: all 0.3s ease !important;
+        background: transparent !important;
     }
 
     .stTabs [data-baseweb="tab"]:hover {
-        background-color: #2a3444 !important;
+        background: rgba(255, 255, 255, 0.1) !important;
         color: #fff !important;
     }
 
     .stTabs [aria-selected="true"] {
         color: #000 !important;
         background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%) !important;
-        box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3) !important;
+        box-shadow: 0 4px 20px rgba(255, 215, 0, 0.4), 0 0 40px rgba(255, 215, 0, 0.2) !important;
     }
 
-    /* Tab highlight indicator */
     .stTabs [data-baseweb="tab-highlight"] {
         display: none !important;
     }
@@ -199,16 +219,18 @@ st.markdown("""
         display: none !important;
     }
 
-    /* Sticky navigation bar */
+    /* ===== GLASSMORPHISM STICKY NAV ===== */
     .sticky-nav {
         position: sticky;
         top: 0;
         z-index: 999;
-        background: linear-gradient(135deg, #1e2530, #252d3a);
+        background: rgba(20, 25, 35, 0.85) !important;
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
         padding: 10px 20px;
-        border-bottom: 1px solid #333;
+        border-bottom: 1px solid var(--glass-border);
         margin: -1rem -1rem 1rem -1rem;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
     }
 
     /* Metal selector header */
@@ -221,15 +243,29 @@ st.markdown("""
         letter-spacing: 2px;
     }
 
-    /* Expander styling */
+    /* ===== GLASSMORPHISM EXPANDERS ===== */
     .streamlit-expanderHeader {
-        background: #1e2530 !important;
-        border-radius: 8px !important;
+        background: var(--glass-bg) !important;
+        backdrop-filter: blur(15px) !important;
+        -webkit-backdrop-filter: blur(15px) !important;
+        border-radius: 12px !important;
+        border: 1px solid var(--glass-border) !important;
         color: #ffffff !important;
+        transition: all 0.3s ease !important;
+    }
+
+    .streamlit-expanderHeader:hover {
+        background: rgba(40, 50, 65, 0.7) !important;
+        border-color: rgba(255, 255, 255, 0.15) !important;
     }
 
     .streamlit-expanderContent {
-        background: #1a1f2e !important;
+        background: rgba(20, 25, 35, 0.5) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        border: 1px solid var(--glass-border) !important;
+        border-top: none !important;
+        border-radius: 0 0 12px 12px !important;
         color: #ffffff !important;
     }
 
@@ -237,7 +273,7 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* Header styling */
+    /* ===== HEADER STYLING ===== */
     .main-header {
         background: linear-gradient(90deg, #FFD700 0%, #FFA500 50%, #FFD700 100%);
         -webkit-background-clip: text;
@@ -248,6 +284,7 @@ st.markdown("""
         text-align: center;
         margin-bottom: 0;
         letter-spacing: -1px;
+        text-shadow: 0 0 40px rgba(255, 215, 0, 0.3);
     }
 
     .sub-header {
@@ -258,26 +295,50 @@ st.markdown("""
         margin-bottom: 30px;
     }
 
-    /* Card styling */
+    /* ===== GLASSMORPHISM CARDS ===== */
     .metric-card {
-        background: linear-gradient(145deg, #1e2530 0%, #252d3a 100%) !important;
+        background: var(--glass-bg) !important;
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
         border-radius: 16px;
         padding: 20px;
-        border: 1px solid #444;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        border: 1px solid var(--glass-border);
+        box-shadow:
+            0 8px 32px rgba(0, 0, 0, 0.3),
+            inset 0 1px 0 var(--glass-highlight);
         margin-bottom: 16px;
+        transition: all 0.3s ease;
+    }
+
+    .metric-card:hover {
+        border-color: rgba(255, 255, 255, 0.2);
+        box-shadow:
+            0 12px 40px rgba(0, 0, 0, 0.4),
+            inset 0 1px 0 var(--glass-highlight);
     }
 
     .metric-card-gold {
-        border-left: 4px solid #FFD700;
+        border-left: 3px solid var(--gold);
+        box-shadow:
+            0 8px 32px rgba(0, 0, 0, 0.3),
+            inset 0 1px 0 var(--glass-highlight),
+            -4px 0 20px rgba(255, 215, 0, 0.1);
     }
 
     .metric-card-silver {
-        border-left: 4px solid #C0C0C0;
+        border-left: 3px solid var(--silver);
+        box-shadow:
+            0 8px 32px rgba(0, 0, 0, 0.3),
+            inset 0 1px 0 var(--glass-highlight),
+            -4px 0 20px rgba(192, 192, 192, 0.1);
     }
 
     .metric-card-copper {
-        border-left: 4px solid #B87333;
+        border-left: 3px solid var(--copper);
+        box-shadow:
+            0 8px 32px rgba(0, 0, 0, 0.3),
+            inset 0 1px 0 var(--glass-highlight),
+            -4px 0 20px rgba(184, 115, 51, 0.1);
     }
 
     /* Price display */
@@ -286,18 +347,22 @@ st.markdown("""
         font-weight: 700;
         color: #fff !important;
         margin: 0;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
     }
 
     .price-gold {
-        color: #FFD700 !important;
+        color: var(--gold) !important;
+        text-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
     }
 
     .price-silver {
-        color: #C0C0C0 !important;
+        color: var(--silver) !important;
+        text-shadow: 0 0 20px rgba(192, 192, 192, 0.3);
     }
 
     .price-copper {
-        color: #B87333 !important;
+        color: var(--copper) !important;
+        text-shadow: 0 0 20px rgba(184, 115, 51, 0.3);
     }
 
     /* Section headers */
@@ -308,10 +373,10 @@ st.markdown("""
         margin-top: 24px;
         margin-bottom: 12px;
         padding-bottom: 8px;
-        border-bottom: 2px solid #444;
+        border-bottom: 1px solid var(--glass-border);
     }
 
-    /* Signal badges */
+    /* ===== SIGNAL BADGES WITH GLOW ===== */
     .signal-bullish {
         background: linear-gradient(135deg, #00c853 0%, #00e676 100%);
         color: #000 !important;
@@ -320,6 +385,7 @@ st.markdown("""
         font-weight: 600;
         font-size: 0.85rem;
         display: inline-block;
+        box-shadow: 0 0 15px rgba(0, 200, 83, 0.4);
     }
 
     .signal-bearish {
@@ -330,16 +396,48 @@ st.markdown("""
         font-weight: 600;
         font-size: 0.85rem;
         display: inline-block;
+        box-shadow: 0 0 15px rgba(255, 82, 82, 0.4);
     }
 
     .signal-neutral {
-        background: linear-gradient(135deg, #455a64 0%, #607d8b 100%);
-        color: #fff !important;
+        background: linear-gradient(135deg, #ffc107 0%, #ffca28 100%);
+        color: #000 !important;
         padding: 4px 12px;
         border-radius: 20px;
         font-weight: 600;
         font-size: 0.85rem;
         display: inline-block;
+        box-shadow: 0 0 15px rgba(255, 193, 7, 0.4);
+    }
+
+    /* ===== SIGNAL DOTS WITH GLOW ===== */
+    .signal-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 8px;
+        animation: pulse 2s infinite;
+    }
+
+    .signal-dot-bullish {
+        background: var(--bullish);
+        box-shadow: 0 0 10px var(--bullish), 0 0 20px rgba(0, 200, 83, 0.5);
+    }
+
+    .signal-dot-bearish {
+        background: var(--bearish);
+        box-shadow: 0 0 10px var(--bearish), 0 0 20px rgba(255, 82, 82, 0.5);
+    }
+
+    .signal-dot-neutral {
+        background: var(--neutral);
+        box-shadow: 0 0 10px var(--neutral), 0 0 20px rgba(255, 193, 7, 0.5);
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
     }
 
     /* Data row styling */
@@ -347,7 +445,7 @@ st.markdown("""
         display: flex;
         justify-content: space-between;
         padding: 8px 0;
-        border-bottom: 1px solid #3a3a3a;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     }
 
     .data-label {
@@ -361,28 +459,40 @@ st.markdown("""
         font-size: 0.9rem;
     }
 
-    /* Verdict box */
+    /* ===== GLASSMORPHISM VERDICT BOX ===== */
     .verdict-box {
-        background: linear-gradient(145deg, #1a2332 0%, #1e2940 100%) !important;
+        background: var(--glass-bg) !important;
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
         border-radius: 16px;
         padding: 24px;
         text-align: center;
-        border: 2px solid #444;
+        border: 2px solid var(--glass-border);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     }
 
     .verdict-bullish {
-        border-color: #00c853 !important;
-        box-shadow: 0 0 30px rgba(0,200,83,0.2);
+        border-color: var(--bullish) !important;
+        box-shadow:
+            0 8px 32px rgba(0, 0, 0, 0.3),
+            0 0 40px rgba(0, 200, 83, 0.15),
+            inset 0 0 60px rgba(0, 200, 83, 0.05);
     }
 
     .verdict-bearish {
-        border-color: #ff1744 !important;
-        box-shadow: 0 0 30px rgba(255,23,68,0.2);
+        border-color: var(--bearish) !important;
+        box-shadow:
+            0 8px 32px rgba(0, 0, 0, 0.3),
+            0 0 40px rgba(255, 82, 82, 0.15),
+            inset 0 0 60px rgba(255, 82, 82, 0.05);
     }
 
     .verdict-neutral {
-        border-color: #ffc107 !important;
-        box-shadow: 0 0 30px rgba(255,193,7,0.2);
+        border-color: var(--neutral) !important;
+        box-shadow:
+            0 8px 32px rgba(0, 0, 0, 0.3),
+            0 0 40px rgba(255, 193, 7, 0.15),
+            inset 0 0 60px rgba(255, 193, 7, 0.05);
     }
 
     .verdict-text {
@@ -397,13 +507,22 @@ st.markdown("""
         margin-top: 4px;
     }
 
-    /* Macro indicator cards */
+    /* ===== GLASSMORPHISM MACRO CARDS ===== */
     .macro-card {
-        background: #1e2530 !important;
+        background: var(--glass-bg) !important;
+        backdrop-filter: blur(15px);
+        -webkit-backdrop-filter: blur(15px);
         border-radius: 12px;
         padding: 16px;
         text-align: center;
-        border: 1px solid #444;
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        transition: all 0.3s ease;
+    }
+
+    .macro-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
     }
 
     .macro-value {
@@ -425,27 +544,74 @@ st.markdown("""
 
     /* Custom divider */
     .custom-divider {
-        height: 2px;
-        background: linear-gradient(90deg, transparent 0%, #444 50%, transparent 100%);
+        height: 1px;
+        background: linear-gradient(90deg, transparent 0%, var(--glass-border) 50%, transparent 100%);
         margin: 40px 0;
     }
 
-    /* Info box */
+    /* ===== GLASSMORPHISM INFO BOX ===== */
     .info-box {
-        background: rgba(255,215,0,0.15) !important;
-        border: 1px solid rgba(255,215,0,0.4);
-        border-radius: 8px;
+        background: rgba(255, 215, 0, 0.1) !important;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 215, 0, 0.3);
+        border-radius: 12px;
         padding: 12px 16px;
         margin: 8px 0;
         color: #fff !important;
+        box-shadow: 0 4px 20px rgba(255, 215, 0, 0.1);
     }
 
     /* Timestamp */
     .timestamp {
         text-align: center;
-        color: #888 !important;
+        color: #666 !important;
         font-size: 0.85rem;
         margin-top: 40px;
+    }
+
+    /* ===== GLASSMORPHISM BUTTONS ===== */
+    .stButton button {
+        background: var(--glass-bg) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        border: 1px solid var(--glass-border) !important;
+        border-radius: 12px !important;
+        color: #fff !important;
+        transition: all 0.3s ease !important;
+    }
+
+    .stButton button:hover {
+        background: rgba(255, 215, 0, 0.2) !important;
+        border-color: rgba(255, 215, 0, 0.4) !important;
+        box-shadow: 0 0 20px rgba(255, 215, 0, 0.2) !important;
+    }
+
+    /* ===== PROGRESS/SCORE BAR ===== */
+    .score-bar {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        height: 8px;
+        overflow: hidden;
+        margin: 8px 0;
+    }
+
+    .score-fill {
+        height: 100%;
+        border-radius: 10px;
+        background: linear-gradient(90deg, var(--bullish) 0%, #00e676 100%);
+        box-shadow: 0 0 10px var(--bullish);
+        transition: width 0.5s ease;
+    }
+
+    .score-fill-bearish {
+        background: linear-gradient(90deg, var(--bearish) 0%, #ff8a80 100%);
+        box-shadow: 0 0 10px var(--bearish);
+    }
+
+    .score-fill-neutral {
+        background: linear-gradient(90deg, var(--neutral) 0%, #ffe082 100%);
+        box-shadow: 0 0 10px var(--neutral);
     }
 
     /* ===== MOBILE RESPONSIVE STYLES ===== */
@@ -464,6 +630,7 @@ st.markdown("""
 
         .metric-card {
             padding: 15px !important;
+            backdrop-filter: blur(10px) !important;
         }
 
         .verdict-text {
@@ -543,7 +710,18 @@ def get_signal_class(signal):
 
 def signal_badge(text, signal_type):
     css_class = get_signal_class(signal_type)
-    return f'<span class="{css_class}">{text}</span>'
+    dot_class = get_signal_dot_class(signal_type)
+    return f'<span class="{css_class}"><span class="signal-dot {dot_class}"></span>{text}</span>'
+
+
+def get_signal_dot_class(signal):
+    """Return CSS class for signal dot with glow effect."""
+    if signal in ["bullish", "uptrend", "rising", "strong_buying", "buying"]:
+        return "signal-dot-bullish"
+    elif signal in ["bearish", "downtrend", "falling", "strong_selling", "selling"]:
+        return "signal-dot-bearish"
+    return "signal-dot-neutral"
+
 
 def signal_emoji(signal):
     if signal in ["bullish", "uptrend", "rising", "strong_buying", "buying"]:
@@ -553,6 +731,218 @@ def signal_emoji(signal):
     elif signal in ["extreme_long", "extreme_short"]:
         return "🟡"
     return "⚪"
+
+
+# === PLOTLY CHART HELPERS ===
+METAL_COLORS = {
+    "Gold": "#FFD700",
+    "Silver": "#C0C0C0",
+    "Copper": "#B87333",
+    "Platinum": "#E5E4E2",
+    "Palladium": "#CED0DD",
+}
+
+
+def create_price_chart(history_df, metal_name, height=300):
+    """Create an interactive Plotly price chart with area fill."""
+    if history_df is None or history_df.empty:
+        return None
+
+    color = METAL_COLORS.get(metal_name, "#FFD700")
+    # Create rgba version for fill
+    color_rgba = f"rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.15)"
+
+    fig = go.Figure()
+
+    # Add area trace
+    fig.add_trace(go.Scatter(
+        x=history_df.index,
+        y=history_df['Close'],
+        mode='lines',
+        name=metal_name,
+        line=dict(color=color, width=2),
+        fill='tozeroy',
+        fillcolor=color_rgba,
+        hovertemplate='%{x|%b %d, %Y}<br>$%{y:,.2f}<extra></extra>'
+    ))
+
+    # Add SMA lines if available
+    if 'SMA50' in history_df.columns:
+        fig.add_trace(go.Scatter(
+            x=history_df.index,
+            y=history_df['SMA50'],
+            mode='lines',
+            name='SMA 50',
+            line=dict(color='rgba(255,193,7,0.6)', width=1, dash='dot'),
+            hovertemplate='SMA50: $%{y:,.2f}<extra></extra>'
+        ))
+
+    if 'SMA200' in history_df.columns:
+        fig.add_trace(go.Scatter(
+            x=history_df.index,
+            y=history_df['SMA200'],
+            mode='lines',
+            name='SMA 200',
+            line=dict(color='rgba(0,200,83,0.6)', width=1, dash='dot'),
+            hovertemplate='SMA200: $%{y:,.2f}<extra></extra>'
+        ))
+
+    fig.update_layout(
+        height=height,
+        margin=dict(l=0, r=0, t=10, b=0),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#888'),
+        xaxis=dict(
+            showgrid=True,
+            gridcolor='rgba(255,255,255,0.05)',
+            showline=False,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='rgba(255,255,255,0.05)',
+            showline=False,
+            zeroline=False,
+            side='right',
+        ),
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.02,
+            xanchor='right',
+            x=1,
+            bgcolor='rgba(0,0,0,0)',
+        ),
+        hovermode='x unified',
+    )
+
+    return fig
+
+
+def create_rsi_gauge(value, height=180):
+    """Create an RSI gauge meter."""
+    if value is None:
+        return None
+
+    # Determine color based on RSI level
+    if value >= 70:
+        bar_color = "#ff5252"  # Overbought - red
+    elif value <= 30:
+        bar_color = "#00c853"  # Oversold - green
+    else:
+        bar_color = "#ffc107"  # Neutral - yellow
+
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=value,
+        number={'suffix': '', 'font': {'size': 28, 'color': '#fff'}},
+        gauge={
+            'axis': {
+                'range': [0, 100],
+                'tickwidth': 1,
+                'tickcolor': '#444',
+                'tickfont': {'color': '#888', 'size': 10}
+            },
+            'bar': {'color': bar_color, 'thickness': 0.3},
+            'bgcolor': 'rgba(0,0,0,0)',
+            'borderwidth': 0,
+            'steps': [
+                {'range': [0, 30], 'color': 'rgba(0,200,83,0.15)'},
+                {'range': [30, 70], 'color': 'rgba(255,193,7,0.1)'},
+                {'range': [70, 100], 'color': 'rgba(255,82,82,0.15)'}
+            ],
+            'threshold': {
+                'line': {'color': '#fff', 'width': 2},
+                'thickness': 0.8,
+                'value': value
+            }
+        },
+        title={'text': 'RSI', 'font': {'size': 14, 'color': '#888'}}
+    ))
+
+    fig.update_layout(
+        height=height,
+        margin=dict(l=20, r=20, t=40, b=20),
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#fff'),
+    )
+
+    return fig
+
+
+def create_sparkline(data, color, height=50, width=120):
+    """Create a tiny sparkline chart for inline display."""
+    if data is None or len(data) == 0:
+        return None
+
+    # Determine trend color
+    if len(data) >= 2:
+        trend_up = data.iloc[-1] > data.iloc[0]
+        line_color = "#00c853" if trend_up else "#ff5252"
+    else:
+        line_color = color
+
+    fig = go.Figure(go.Scatter(
+        y=data.values,
+        mode='lines',
+        line=dict(color=line_color, width=1.5),
+        fill='tozeroy',
+        fillcolor=f'rgba({int(line_color[1:3], 16)}, {int(line_color[3:5], 16)}, {int(line_color[5:7], 16)}, 0.1)',
+        hoverinfo='skip'
+    ))
+
+    fig.update_layout(
+        height=height,
+        width=width,
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(visible=False, fixedrange=True),
+        yaxis=dict(visible=False, fixedrange=True),
+        showlegend=False,
+    )
+
+    return fig
+
+
+def create_signal_bar(bullish_count, total=5, height=30):
+    """Create a horizontal signal strength bar."""
+    fig = go.Figure()
+
+    # Background bar
+    fig.add_trace(go.Bar(
+        x=[total],
+        y=['Signal'],
+        orientation='h',
+        marker=dict(color='rgba(255,255,255,0.1)'),
+        hoverinfo='skip',
+        showlegend=False,
+    ))
+
+    # Filled portion
+    bar_color = "#00c853" if bullish_count >= 3 else "#ffc107" if bullish_count >= 2 else "#ff5252"
+    fig.add_trace(go.Bar(
+        x=[bullish_count],
+        y=['Signal'],
+        orientation='h',
+        marker=dict(color=bar_color),
+        hoverinfo='skip',
+        showlegend=False,
+    ))
+
+    fig.update_layout(
+        height=height,
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(visible=False, range=[0, total], fixedrange=True),
+        yaxis=dict(visible=False, fixedrange=True),
+        barmode='overlay',
+    )
+
+    return fig
+
 
 # === HEADER ===
 st.markdown('<h1 class="main-header">Precious Metals Trading Coach</h1>', unsafe_allow_html=True)
@@ -854,24 +1244,64 @@ st.markdown(f"""
 # === WHAT CHANGED TODAY ===
 # Get pressure data for change detection
 try:
+    gold_pressure_data = get_current_pressure("gold")
+    silver_pressure_data = get_current_pressure("silver")
     copper_pressure_data = get_current_pressure("copper")
     platinum_pressure_data = get_current_pressure("platinum")
     palladium_pressure_data = get_current_pressure("palladium")
 except Exception:
+    gold_pressure_data = {"error": "unavailable"}
+    silver_pressure_data = {"error": "unavailable"}
     copper_pressure_data = {"error": "unavailable"}
     platinum_pressure_data = {"error": "unavailable"}
     palladium_pressure_data = {"error": "unavailable"}
 
-# Detect changes across all metals
+# Detect changes across all metals (pass spot prices for accurate daily change %)
 daily_changes = get_all_changes(
     gold_ind, silver_ind, copper_ind,
     platinum_ind, palladium_ind,
-    copper_pressure_data, platinum_pressure_data, palladium_pressure_data
+    copper_pressure_data, platinum_pressure_data, palladium_pressure_data,
+    gold_price, silver_price, copper_price, platinum_price, palladium_price
 )
 
 # Display the changes section
 changes_html = format_changes_html(daily_changes)
 st.markdown(changes_html, unsafe_allow_html=True)
+
+# === MARKET NEWS ===
+@st.cache_data(ttl=900)  # Cache for 15 minutes
+def get_cached_news():
+    return fetch_all_news(limit_per_metal=4)
+
+try:
+    news_items = get_cached_news()
+except Exception:
+    news_items = []
+
+if news_items:
+    # Build news items HTML with escaped titles
+    import html as html_lib
+    news_items_html = ""
+    for item in news_items[:10]:
+        border_color = '#FFD700' if item['metal'] == 'gold' else '#C0C0C0' if item['metal'] == 'silver' else '#E5E4E2'
+        safe_title = html_lib.escape(item['title'])
+        safe_url = html_lib.escape(item['url'])
+        news_items_html += f'''<a href="{safe_url}" target="_blank" rel="noopener noreferrer" class="news-item" style="text-decoration: none; display: block; margin-bottom: 8px;">
+<div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; border-left: 3px solid {border_color};">
+<span style="margin-right: 10px;">{item['emoji']}</span>
+<span style="color: #e0e0e0; flex: 1; font-size: 0.9rem;">{safe_title}</span>
+<span style="color: #666; font-size: 0.75rem; margin-left: 10px; white-space: nowrap;">{item['date_str']}</span>
+</div></a>'''
+
+    st.markdown(f"""
+<div style="background: rgba(30, 37, 48, 0.6); backdrop-filter: blur(20px); border-radius: 16px; padding: 20px; margin: 16px 0; border: 1px solid rgba(255, 255, 255, 0.1);">
+<div style="color: #888; font-size: 0.9rem; margin-bottom: 12px;">📰 Precious Metals News</div>
+{news_items_html}
+<div style="text-align: right; margin-top: 12px;">
+<a href="https://www.metalsdaily.com/news/" target="_blank" rel="noopener noreferrer" style="color: #888; font-size: 0.8rem; text-decoration: none;">More news →</a>
+</div>
+</div>
+""", unsafe_allow_html=True)
 
 # === HERO SECTION - LIVE PRICES ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
@@ -880,7 +1310,14 @@ hero_col1, hero_col2, hero_col3 = st.columns(3)
 
 with hero_col1:
     if gold_price:
-        pct_from_high = gold_ind.get('pct_from_52w_high', 0) if "error" not in gold_ind else 0
+        # Use spot-based high with dynamic label showing days of data
+        gold_high, gold_days = get_spot_high_and_days("XAU")
+        if gold_high and gold_days > 0:
+            pct_from_high = ((gold_price / gold_high) - 1) * 100
+            high_label = f"{gold_days}d high"
+        else:
+            pct_from_high = gold_ind.get('pct_from_52w_high', 0) if "error" not in gold_ind else 0
+            high_label = "52w high"
         trend = gold_ind.get('trend', 'unknown') if "error" not in gold_ind else 'unknown'
 
         st.markdown(f"""
@@ -890,7 +1327,7 @@ with hero_col1:
                     <span style="color: #888; font-size: 0.9rem;">GOLD (XAU/USD)</span>
                     <h2 class="price-large price-gold">{format_price(gold_price)}</h2>
                     <span style="color: {'#00c853' if pct_from_high >= 0 else '#ff5252'}; font-size: 0.95rem;">
-                        {pct_from_high:+.2f}% from 52w high
+                        {pct_from_high:+.2f}% from {high_label}
                     </span>
                 </div>
                 <div style="text-align: right;">
@@ -900,12 +1337,28 @@ with hero_col1:
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+        # Sparkline for 20-day trend
+        if "error" not in gold_ind:
+            gold_hist = gold_ind.get("history")
+            if gold_hist is not None and len(gold_hist) >= 20:
+                sparkline_data = gold_hist['Close'].tail(20)
+                sparkline = create_sparkline(sparkline_data, "#FFD700", height=40, width=None)
+                if sparkline:
+                    st.plotly_chart(sparkline, use_container_width=True, config={'displayModeBar': False})
     else:
         st.error("Gold price unavailable")
 
 with hero_col2:
     if silver_price:
-        pct_from_high = silver_ind.get('pct_from_52w_high', 0) if "error" not in silver_ind else 0
+        # Use spot-based high with dynamic label showing days of data
+        silver_high, silver_days = get_spot_high_and_days("XAG")
+        if silver_high and silver_days > 0:
+            pct_from_high = ((silver_price / silver_high) - 1) * 100
+            high_label = f"{silver_days}d high"
+        else:
+            pct_from_high = silver_ind.get('pct_from_52w_high', 0) if "error" not in silver_ind else 0
+            high_label = "52w high"
         trend = silver_ind.get('trend', 'unknown') if "error" not in silver_ind else 'unknown'
 
         st.markdown(f"""
@@ -915,7 +1368,7 @@ with hero_col2:
                     <span style="color: #888; font-size: 0.9rem;">SILVER (XAG/USD)</span>
                     <h2 class="price-large price-silver">{format_price(silver_price)}</h2>
                     <span style="color: {'#00c853' if pct_from_high >= 0 else '#ff5252'}; font-size: 0.95rem;">
-                        {pct_from_high:+.2f}% from 52w high
+                        {pct_from_high:+.2f}% from {high_label}
                     </span>
                 </div>
                 <div style="text-align: right;">
@@ -925,12 +1378,28 @@ with hero_col2:
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+        # Sparkline for 20-day trend
+        if "error" not in silver_ind:
+            silver_hist = silver_ind.get("history")
+            if silver_hist is not None and len(silver_hist) >= 20:
+                sparkline_data = silver_hist['Close'].tail(20)
+                sparkline = create_sparkline(sparkline_data, "#C0C0C0", height=40, width=None)
+                if sparkline:
+                    st.plotly_chart(sparkline, use_container_width=True, config={'displayModeBar': False})
     else:
         st.error("Silver price unavailable")
 
 with hero_col3:
     if copper_price:
-        pct_from_high = copper_ind.get('pct_from_52w_high', 0) if "error" not in copper_ind else 0
+        # Use spot-based high with dynamic label showing days of data
+        copper_high, copper_days = get_spot_high_and_days("HG")
+        if copper_high and copper_days > 0:
+            pct_from_high = ((copper_price / copper_high) - 1) * 100
+            high_label = f"{copper_days}d high"
+        else:
+            pct_from_high = copper_ind.get('pct_from_52w_high', 0) if "error" not in copper_ind else 0
+            high_label = "52w high"
         trend = copper_ind.get('trend', 'unknown') if "error" not in copper_ind else 'unknown'
 
         st.markdown(f"""
@@ -940,7 +1409,7 @@ with hero_col3:
                     <span style="color: #888; font-size: 0.9rem;">COPPER (HG/USD)</span>
                     <h2 class="price-large price-copper">{format_price(copper_price)}/lb</h2>
                     <span style="color: {'#00c853' if pct_from_high >= 0 else '#ff5252'}; font-size: 0.95rem;">
-                        {pct_from_high:+.2f}% from 52w high
+                        {pct_from_high:+.2f}% from {high_label}
                     </span>
                 </div>
                 <div style="text-align: right;">
@@ -950,6 +1419,15 @@ with hero_col3:
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+        # Sparkline for 20-day trend
+        if "error" not in copper_ind:
+            copper_hist = copper_ind.get("history")
+            if copper_hist is not None and len(copper_hist) >= 20:
+                sparkline_data = copper_hist['Close'].tail(20)
+                sparkline = create_sparkline(sparkline_data, "#B87333", height=40, width=None)
+                if sparkline:
+                    st.plotly_chart(sparkline, use_container_width=True, config={'displayModeBar': False})
     else:
         st.error("Copper price unavailable")
 
@@ -1001,21 +1479,40 @@ def render_five_pillar_analysis(five_data: dict, metal_name: str, color: str):
         box_color = "#ffc107"
         bias_emoji = "⚪"
 
-    st.markdown(f"""
-    <div style="background: linear-gradient(145deg, #1a2332 0%, #1e2940 100%);
-                border-radius: 12px; padding: 20px; border-left: 4px solid {color};
-                margin-bottom: 16px;">
-        <div style="color: #888; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">{metal_name}</div>
-        <div style="font-size: 1.1rem; color: #fff; margin: 8px 0; font-weight: 500;">{action}</div>
-        <div style="display: flex; align-items: center; gap: 12px; margin-top: 12px;">
-            <span style="background: {box_color}; color: {'#000' if 'bullish' in bias else '#fff'};
-                        padding: 6px 16px; border-radius: 20px; font-weight: 600; font-size: 0.9rem;">
-                {bias_emoji} {bias.upper().replace('_', ' ')}
-            </span>
-            <span style="color: #888; font-size: 0.85rem;">Bullish: {bullish_count} | Bearish: {bearish_count}</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Calculate score percentage for visual bar
+    total_signals = bullish_count + bearish_count
+    score_pct = (bullish_count / 5) * 100 if total_signals > 0 else 50
+
+    # Determine bar color class
+    if "bullish" in bias:
+        bar_class = ""
+    elif "bearish" in bias:
+        bar_class = "score-fill-bearish"
+    else:
+        bar_class = "score-fill-neutral"
+
+    text_color = '#000' if 'bullish' in bias else '#fff'
+    bias_label = bias.upper().replace('_', ' ')
+
+    # Full-width status banner at top
+    card_html = f'''<div style="background: rgba(30, 37, 48, 0.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-radius: 16px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3); margin-bottom: 16px;">
+<div style="background: linear-gradient(90deg, {box_color} 0%, {box_color}99 100%); padding: 10px 20px; display: flex; justify-content: space-between; align-items: center;">
+<span style="color: {text_color}; font-weight: 700; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">{bias_emoji} {bias_label}</span>
+<span style="color: {text_color}; font-size: 0.85rem; opacity: 0.9;">{bullish_count}/5 Bullish Signals</span>
+</div>
+<div style="padding: 20px; border-left: 3px solid {color};">
+<div style="color: #888; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">{metal_name}</div>
+<div style="font-size: 1.1rem; color: #fff; font-weight: 500;">{action}</div>
+<div style="margin-top: 16px;">
+<div class="score-bar" style="height: 6px;"><div class="score-fill {bar_class}" style="width: {score_pct}%;"></div></div>
+<div style="display: flex; justify-content: space-between; margin-top: 6px;">
+<span style="color: #888; font-size: 0.7rem;">Bearish</span>
+<span style="color: #888; font-size: 0.7rem;">Bullish</span>
+</div>
+</div>
+</div>
+</div>'''
+    st.markdown(card_html, unsafe_allow_html=True)
 
     # 5 Pillars display
     with st.expander(f"View {metal_name} 5-Pillar Details"):
@@ -1425,15 +1922,39 @@ def get_verdict_info(ind, cot, macro, term, metal_type="standard"):
         return "🟡", verdict, "#ffc107"
 
 
-def get_daily_change(ind):
-    """Get daily price change percentage."""
-    if "error" in ind:
+def get_daily_change(symbol: str, spot_price: float = None, ind: dict = None):
+    """
+    Get daily price change percentage using spot-to-spot comparison.
+
+    Compares today's live spot price against yesterday's spot close from
+    Gold-API history for accurate daily change calculation.
+
+    Falls back to futures data if spot history isn't available (e.g., platinum).
+
+    Args:
+        symbol: Metal symbol (XAU, XAG, HG, XPT, XPD)
+        spot_price: Current live spot price from Gold-API
+        ind: Indicator dict with futures history (fallback for metals like platinum)
+
+    Returns:
+        Percentage change as float, or None if unavailable
+    """
+    if spot_price is None:
         return None
-    hist = ind.get("history")
-    if hist is not None and len(hist) >= 2:
-        today = hist["Close"].iloc[-1]
-        yesterday = hist["Close"].iloc[-2]
-        return ((today / yesterday) - 1) * 100
+
+    # Try spot-to-spot comparison first (most accurate)
+    yesterday_close = get_yesterday_spot_close(symbol)
+    if yesterday_close is not None:
+        return ((spot_price / yesterday_close) - 1) * 100
+
+    # Fallback to futures data for metals without spot history (e.g., platinum)
+    if ind is not None and "error" not in ind:
+        hist = ind.get("history")
+        if hist is not None and len(hist) >= 2:
+            # Use yesterday's futures close as fallback
+            yesterday_futures = hist["Close"].iloc[-2]
+            return ((spot_price / yesterday_futures) - 1) * 100
+
     return None
 
 
@@ -1444,11 +1965,12 @@ copper_emoji, copper_verdict_text, copper_color = get_verdict_info(copper_ind, c
 platinum_emoji, platinum_verdict_text, platinum_color = get_verdict_info(platinum_ind, platinum_cot, macro_data, platinum_term)
 palladium_emoji, palladium_verdict_text, palladium_color = get_verdict_info(palladium_ind, palladium_cot, macro_data, palladium_term)
 
-gold_change = get_daily_change(gold_ind)
-silver_change = get_daily_change(silver_ind)
-copper_change = get_daily_change(copper_ind)
-platinum_change = get_daily_change(platinum_ind)
-palladium_change = get_daily_change(palladium_ind)
+# Get daily changes - use spot history, with futures fallback for platinum
+gold_change = get_daily_change("XAU", gold_price)
+silver_change = get_daily_change("XAG", silver_price)
+copper_change = get_daily_change("HG", copper_price)
+platinum_change = get_daily_change("XPT", platinum_price, platinum_ind)  # Futures fallback
+palladium_change = get_daily_change("XPD", palladium_price)
 
 def render_technical_tab(ind, cot, term, metal_name):
     """Render technical analysis for a metal."""
@@ -1464,12 +1986,15 @@ def render_technical_tab(ind, cot, term, metal_name):
         with st.expander("ℹ️ What to look for"):
             st.markdown(PRICE_LEVELS_GUIDE)
 
+        # Build price levels table - only show Futures row if we have futures data
+        futures_price = ind.get('futures_price')
+        futures_row = f"| **Futures** | {format_price(futures_price)} |\n        " if futures_price else ""
+
         st.markdown(f"""
         | Level | Price |
         |-------|-------|
         | **Spot** | {format_price(ind.get('spot_price') or ind.get('last_close'))} |
-        | **Futures** | {format_price(ind.get('futures_price'))} |
-        | **All-Time High** | {format_price(ind.get('ath'))} |
+        {futures_row}| **All-Time High** | {format_price(ind.get('ath'))} |
         | **52w High** | {format_price(ind.get('52w_high'))} |
         | **52w Low** | {format_price(ind.get('52w_low'))} |
         | **% from ATH** | {format_pct(ind.get('pct_from_ath'))} |
@@ -1527,13 +2052,27 @@ def render_technical_tab(ind, cot, term, metal_name):
         vol_ratio = ind.get('volume_ratio')
         vol_signal = ind.get('volume_signal', 'N/A')
 
-        # RSI Section
-        st.markdown(f"**RSI(14):** {format_number(rsi_val, 1)}")
-        if "error" not in rsi_momentum:
-            rsi_change = rsi_momentum.get('change', 0)
-            rsi_dir = "↑" if rsi_change > 0 else "↓" if rsi_change < 0 else "→"
-            st.caption(f"{rsi_dir} {abs(rsi_change):.1f} pts (5-day)")
-            st.markdown(f"{signal_emoji(rsi_signal_type)} {rsi_action}", unsafe_allow_html=True)
+        # RSI Section with Gauge
+        rsi_col1, rsi_col2 = st.columns([1, 1])
+        with rsi_col1:
+            if rsi_val is not None:
+                rsi_gauge = create_rsi_gauge(rsi_val, height=150)
+                if rsi_gauge:
+                    st.plotly_chart(rsi_gauge, use_container_width=True, config={'displayModeBar': False})
+            else:
+                st.markdown("**RSI(14):** N/A")
+        with rsi_col2:
+            st.markdown("**RSI Analysis**")
+            if "error" not in rsi_momentum:
+                rsi_change = rsi_momentum.get('change', 0)
+                rsi_dir = "↑" if rsi_change > 0 else "↓" if rsi_change < 0 else "→"
+                st.caption(f"{rsi_dir} {abs(rsi_change):.1f} pts (5-day)")
+                st.markdown(f"{signal_emoji(rsi_signal_type)} {rsi_action}", unsafe_allow_html=True)
+            if rsi_val is not None:
+                if rsi_val >= 70:
+                    st.caption("⚠️ Overbought territory")
+                elif rsi_val <= 30:
+                    st.caption("💡 Oversold territory")
         st.markdown("---")
 
         # MACD Section
@@ -1605,14 +2144,23 @@ def render_technical_tab(ind, cot, term, metal_name):
 
         st.markdown(f"**Signal:** {signal_badge(signal, signal)} - {term.get('interpretation', '')}", unsafe_allow_html=True)
 
-    # Price Chart
+    # Price Chart - Interactive Plotly
     st.markdown("#### 📉 Price Chart (180 Days)")
     hist = ind.get("history")
     if hist is not None and not hist.empty:
-        chart_data = hist['Close'].tail(180)
-        last_date = chart_data.index[-1].strftime("%Y-%m-%d")
-        st.caption(f"Data through: {last_date} (market close)")
-        st.line_chart(chart_data, use_container_width=True)
+        chart_df = hist.tail(180).copy()
+        # Add SMA columns if available
+        if ind.get('sma50') is not None and 'Close' in chart_df.columns:
+            chart_df['SMA50'] = chart_df['Close'].rolling(50, min_periods=1).mean()
+        if ind.get('sma200') is not None and 'Close' in chart_df.columns:
+            chart_df['SMA200'] = chart_df['Close'].rolling(200, min_periods=1).mean()
+
+        last_date = chart_df.index[-1].strftime("%Y-%m-%d")
+        st.caption(f"Data through: {last_date} (market close) • Hover for details")
+
+        price_chart = create_price_chart(chart_df, metal_name, height=350)
+        if price_chart:
+            st.plotly_chart(price_chart, use_container_width=True, config={'displayModeBar': False})
 
 # === GOLD ACCORDION ===
 gold_header = f"🥇 GOLD — {format_price(gold_price)} — {gold_emoji} {gold_verdict_text}"
@@ -1621,6 +2169,77 @@ if gold_change is not None:
 
 with st.expander(gold_header, expanded=False):
     render_technical_tab(gold_ind, gold_cot, gold_term, "Gold")
+
+    # CME Warehouse Inventory Section
+    st.markdown("#### 📦 COMEX Warehouse Inventory")
+
+    gold_inv = get_latest_inventory("gold")
+    gold_inv_state = get_inventory_state("gold")
+
+    if gold_inv:
+        inv_g1, inv_g2, inv_g3 = st.columns(3)
+        with inv_g1:
+            st.metric(
+                "Total Inventory",
+                f"{gold_inv['total']:,} oz" if gold_inv.get('total') else "N/A"
+            )
+        with inv_g2:
+            change_5d = gold_inv.get('change_5d_pct')
+            if change_5d is not None:
+                st.metric("5-Day Change", f"{change_5d:+.2f}%", delta_color="inverse")
+            else:
+                st.metric("5-Day Change", "N/A")
+        with inv_g3:
+            if gold_inv_state and gold_inv_state.get('state') != 'unknown':
+                st.metric("Inventory State", f"{gold_inv_state['emoji']} {gold_inv_state['state'].upper()}")
+            else:
+                st.metric("Inventory State", "Calculating...")
+
+        if gold_inv_state and gold_inv_state.get('interpretation'):
+            st.caption(gold_inv_state['interpretation'])
+    else:
+        st.info("CME inventory data not yet available. Runs daily at 10:30 PM ET.")
+
+    # Price vs Inventory Pressure Analysis
+    st.markdown("#### ⚡ Price vs Inventory Pressure")
+
+    if "error" not in gold_pressure_data:
+        pres_g1, pres_g2, pres_g3 = st.columns(3)
+        with pres_g1:
+            st.metric(
+                "Pressure State",
+                f"{gold_pressure_data['state_emoji']} {gold_pressure_data['pressure_state']}"
+            )
+        with pres_g2:
+            price_5d = gold_pressure_data.get('price_pct_5d')
+            st.metric(
+                "Price 5D",
+                f"{price_5d:+.1f}%" if price_5d else "N/A",
+                gold_pressure_data.get('price_direction', '')
+            )
+        with pres_g3:
+            inv_5d = gold_pressure_data.get('inv_pct_5d')
+            st.metric(
+                "Inventory 5D",
+                f"{inv_5d:+.1f}%" if inv_5d else "N/A",
+                gold_pressure_data.get('inventory_direction', ''),
+                delta_color="inverse"
+            )
+
+        st.markdown(f"**{gold_pressure_data['state_description']}**")
+        st.caption(f"Action: {gold_pressure_data['state_action']}")
+
+        # Show streak if available
+        streak = gold_pressure_data.get('state_streak_days')
+        if streak and streak > 1:
+            st.caption(f"State persistence: {streak} consecutive days")
+
+        # Show data status if limited
+        if gold_pressure_data.get('data_status') == 'limited':
+            days = gold_pressure_data.get('days_of_inventory_data', 0)
+            st.info(f"Building history: {days}/10 days of inventory data collected. Full pressure analysis coming soon.")
+    else:
+        st.warning("Pressure analysis unavailable")
 
     # AI Analysis button inside accordion
     if st.button("🤖 Generate Gold AI Analysis", use_container_width=True, key="btn_gold_ai_accordion"):
@@ -1643,6 +2262,77 @@ if silver_change is not None:
 
 with st.expander(silver_header, expanded=False):
     render_technical_tab(silver_ind, silver_cot, silver_term, "Silver")
+
+    # CME Warehouse Inventory Section
+    st.markdown("#### 📦 COMEX Warehouse Inventory")
+
+    silver_inv = get_latest_inventory("silver")
+    silver_inv_state = get_inventory_state("silver")
+
+    if silver_inv:
+        inv_s1, inv_s2, inv_s3 = st.columns(3)
+        with inv_s1:
+            st.metric(
+                "Total Inventory",
+                f"{silver_inv['total']:,} oz" if silver_inv.get('total') else "N/A"
+            )
+        with inv_s2:
+            change_5d = silver_inv.get('change_5d_pct')
+            if change_5d is not None:
+                st.metric("5-Day Change", f"{change_5d:+.2f}%", delta_color="inverse")
+            else:
+                st.metric("5-Day Change", "N/A")
+        with inv_s3:
+            if silver_inv_state and silver_inv_state.get('state') != 'unknown':
+                st.metric("Inventory State", f"{silver_inv_state['emoji']} {silver_inv_state['state'].upper()}")
+            else:
+                st.metric("Inventory State", "Calculating...")
+
+        if silver_inv_state and silver_inv_state.get('interpretation'):
+            st.caption(silver_inv_state['interpretation'])
+    else:
+        st.info("CME inventory data not yet available. Runs daily at 10:30 PM ET.")
+
+    # Price vs Inventory Pressure Analysis
+    st.markdown("#### ⚡ Price vs Inventory Pressure")
+
+    if "error" not in silver_pressure_data:
+        pres_s1, pres_s2, pres_s3 = st.columns(3)
+        with pres_s1:
+            st.metric(
+                "Pressure State",
+                f"{silver_pressure_data['state_emoji']} {silver_pressure_data['pressure_state']}"
+            )
+        with pres_s2:
+            price_5d = silver_pressure_data.get('price_pct_5d')
+            st.metric(
+                "Price 5D",
+                f"{price_5d:+.1f}%" if price_5d else "N/A",
+                silver_pressure_data.get('price_direction', '')
+            )
+        with pres_s3:
+            inv_5d = silver_pressure_data.get('inv_pct_5d')
+            st.metric(
+                "Inventory 5D",
+                f"{inv_5d:+.1f}%" if inv_5d else "N/A",
+                silver_pressure_data.get('inventory_direction', ''),
+                delta_color="inverse"
+            )
+
+        st.markdown(f"**{silver_pressure_data['state_description']}**")
+        st.caption(f"Action: {silver_pressure_data['state_action']}")
+
+        # Show streak if available
+        streak = silver_pressure_data.get('state_streak_days')
+        if streak and streak > 1:
+            st.caption(f"State persistence: {streak} consecutive days")
+
+        # Show data status if limited
+        if silver_pressure_data.get('data_status') == 'limited':
+            days = silver_pressure_data.get('days_of_inventory_data', 0)
+            st.info(f"Building history: {days}/10 days of inventory data collected. Full pressure analysis coming soon.")
+    else:
+        st.warning("Pressure analysis unavailable")
 
     # AI Analysis button inside accordion
     if st.button("🤖 Generate Silver AI Analysis", use_container_width=True, key="btn_silver_ai_accordion"):
@@ -1878,11 +2568,41 @@ with st.expander(platinum_header, expanded=False):
             trend_emoji = "📈" if ptpd_ratio['trend'] == "rising" else "📉" if ptpd_ratio['trend'] == "falling" else "➡️"
             st.caption(f"{trend_emoji} {ptpd_ratio['trend_description']}")
 
-        # Chart in expander
+        # Chart in expander - Interactive Plotly
         with st.expander("📊 View Pt/Pd Ratio Chart (2 Years)", expanded=False):
             chart_data = ptpd_ratio.get('chart_data')
             if chart_data is not None and not chart_data.empty:
-                st.line_chart(chart_data, use_container_width=True)
+                # Create ratio chart with mean line
+                ratio_fig = go.Figure()
+                ratio_fig.add_trace(go.Scatter(
+                    x=chart_data.index,
+                    y=chart_data['Pt/Pd Ratio'],
+                    mode='lines',
+                    name='Ratio',
+                    line=dict(color='#E5E4E2', width=2),
+                    fill='tozeroy',
+                    fillcolor='rgba(229, 228, 226, 0.1)',
+                    hovertemplate='%{x|%b %d, %Y}<br>Ratio: %{y:.3f}<extra></extra>'
+                ))
+                # Add mean line
+                ratio_fig.add_hline(
+                    y=ptpd_ratio['mean'],
+                    line_dash="dash",
+                    line_color="rgba(255,193,7,0.6)",
+                    annotation_text=f"Mean: {ptpd_ratio['mean']:.3f}",
+                    annotation_position="right"
+                )
+                ratio_fig.update_layout(
+                    height=250,
+                    margin=dict(l=0, r=60, t=10, b=0),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='#888'),
+                    xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
+                    yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', side='right'),
+                    showlegend=False,
+                )
+                st.plotly_chart(ratio_fig, use_container_width=True, config={'displayModeBar': False})
                 st.caption(f"Mean: {ptpd_ratio['mean']:.3f} | Range: {ptpd_ratio['min']:.3f} - {ptpd_ratio['max']:.3f}")
     else:
         st.warning("Pt/Pd ratio data unavailable")
@@ -2019,11 +2739,41 @@ with st.expander(palladium_header, expanded=False):
             trend_emoji = "📉" if ptpd_ratio['trend'] == "rising" else "📈" if ptpd_ratio['trend'] == "falling" else "➡️"
             st.caption(f"{trend_emoji} {pd_trend}")
 
-        # Chart in expander
+        # Chart in expander - Interactive Plotly
         with st.expander("📊 View Pt/Pd Ratio Chart (2 Years)", expanded=False):
             chart_data = ptpd_ratio.get('chart_data')
             if chart_data is not None and not chart_data.empty:
-                st.line_chart(chart_data, use_container_width=True)
+                # Create ratio chart with mean line (inverted perspective for palladium)
+                ratio_fig = go.Figure()
+                ratio_fig.add_trace(go.Scatter(
+                    x=chart_data.index,
+                    y=chart_data['Pt/Pd Ratio'],
+                    mode='lines',
+                    name='Ratio',
+                    line=dict(color='#CED0DD', width=2),
+                    fill='tozeroy',
+                    fillcolor='rgba(206, 208, 221, 0.1)',
+                    hovertemplate='%{x|%b %d, %Y}<br>Ratio: %{y:.3f}<extra></extra>'
+                ))
+                # Add mean line
+                ratio_fig.add_hline(
+                    y=ptpd_ratio['mean'],
+                    line_dash="dash",
+                    line_color="rgba(255,193,7,0.6)",
+                    annotation_text=f"Mean: {ptpd_ratio['mean']:.3f}",
+                    annotation_position="right"
+                )
+                ratio_fig.update_layout(
+                    height=250,
+                    margin=dict(l=0, r=60, t=10, b=0),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='#888'),
+                    xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
+                    yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', side='right'),
+                    showlegend=False,
+                )
+                st.plotly_chart(ratio_fig, use_container_width=True, config={'displayModeBar': False})
                 st.caption(f"Mean: {ptpd_ratio['mean']:.3f} | Range: {ptpd_ratio['min']:.3f} - {ptpd_ratio['max']:.3f}")
     else:
         st.warning("Pt/Pd ratio data unavailable")

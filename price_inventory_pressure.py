@@ -2,7 +2,7 @@
 Price vs Inventory Pressure Analysis Module
 
 Detects agreement vs disagreement between paper price and physical availability
-for Copper, Platinum, and Palladium.
+for Gold, Silver, Copper, Platinum, and Palladium.
 
 This module outputs pressure states and context - NOT buy/sell signals.
 
@@ -18,6 +18,8 @@ from cme_inventory import load_inventory, get_grand_totals
 
 # Futures tickers for price data
 TICKERS = {
+    "gold": "GC=F",
+    "silver": "SI=F",
     "copper": "HG=F",
     "platinum": "PL=F",
     "palladium": "PA=F",
@@ -146,7 +148,7 @@ def compute_pressure_table(metal: str, lookback_days: int = 60) -> Optional[pd.D
     Compute the full pressure analysis table for a metal.
 
     Args:
-        metal: "copper", "platinum", or "palladium"
+        metal: "gold", "silver", "copper", "platinum", or "palladium"
         lookback_days: Number of days of history to analyze
 
     Returns:
@@ -416,7 +418,7 @@ def get_pressure_table_display(metal: str, rows: int = 20) -> Optional[pd.DataFr
 if __name__ == "__main__":
     print("=== Price vs Inventory Pressure Analysis ===\n")
 
-    for metal in ["copper", "platinum", "palladium"]:
+    for metal in ["gold", "silver", "copper", "platinum", "palladium"]:
         print(f"\n--- {metal.upper()} ---")
 
         pressure = get_current_pressure(metal)

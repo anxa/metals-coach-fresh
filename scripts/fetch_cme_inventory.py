@@ -3,10 +3,12 @@
 CME Metals Inventory Fetcher
 
 Downloads and parses CME warehouse inventory reports for:
+- Gold: https://www.cmegroup.com/delivery_reports/Gold_Stocks.xls
+- Silver: https://www.cmegroup.com/delivery_reports/Silver_stocks.xls
 - Copper: https://www.cmegroup.com/delivery_reports/Copper_Stocks.xls
 - Platinum/Palladium: https://www.cmegroup.com/delivery_reports/PA-PL_Stck_Rprt.xls
 
-Appends parsed data to data/cme_inventory.csv with per-warehouse granularity.
+Appends parsed data to data/cme_inventory.csv with per-warehouse/depository granularity.
 Includes GRAND_TOTAL row for each metal for easy lookups.
 
 Usage:
@@ -24,6 +26,8 @@ from typing import Dict, List, Optional, Tuple
 
 # URLs for CME delivery reports
 CME_URLS = {
+    "gold": "https://www.cmegroup.com/delivery_reports/Gold_Stocks.xls",
+    "silver": "https://www.cmegroup.com/delivery_reports/Silver_stocks.xls",
     "copper": "https://www.cmegroup.com/delivery_reports/Copper_Stocks.xls",
     "platinum_palladium": "https://www.cmegroup.com/delivery_reports/PA-PL_Stck_Rprt.xls",
 }
@@ -100,6 +104,176 @@ def clean_warehouse_name(name: str) -> str:
     name = re.sub(r'[^\w\s]', '', name)
     name = re.sub(r'\s+', '_', name)
     return name
+
+
+def parse_gold_silver_xls(content: bytes, metal: str) -> List[Dict]:
+    """
+    Parse Gold or Silver Stocks XLS file.
+
+    Both gold and silver have the same format:
+    - Header with DEPOSITORY columns
+    - Per-depository data: Registered/Pledged(gold only)/Eligible/Total
+    - Summary rows: TOTAL REGISTERED, TOTAL PLEDGED(gold), TOTAL ELIGIBLE, COMBINED TOTAL
+
+    Args:
+        content: Raw XLS file bytes
+        metal: "gold" or "silver"
+
+    Returns list of dicts, one per depository (including GRAND_TOTAL).
+    """
+    records = []
+
+    try:
+        workbook = xlrd.open_workbook(file_contents=content)
+        sheet = workbook.sheet_by_index(0)
+
+        # Find dates (usually in rows 7-8)
+        report_date = None
+        activity_date = None
+
+        for row_idx in range(min(15, sheet.nrows)):
+            row_text = " ".join(str(sheet.cell_value(row_idx, col))
+                               for col in range(sheet.ncols))
+
+            if "Report Date:" in row_text and not report_date:
+                report_date = parse_date_from_text(row_text)
+            if "Activity Date:" in row_text and not activity_date:
+                activity_date = parse_date_from_text(row_text)
+
+        if not activity_date:
+            print(f"Could not find activity date in {metal} XLS")
+            return []
+
+        # Find the header row (contains "DEPOSITORY" and "PREV TOTAL")
+        header_row = None
+        for row_idx in range(min(20, sheet.nrows)):
+            row_text = " ".join(str(sheet.cell_value(row_idx, col))
+                               for col in range(sheet.ncols)).upper()
+            if "DEPOSITORY" in row_text and "PREV TOTAL" in row_text:
+                header_row = row_idx
+                break
+
+        if header_row is None:
+            print(f"Could not find header row in {metal} XLS")
+            return []
+
+        # Parse depository data
+        current_depository = None
+        depository_data = {}
+
+        for row_idx in range(header_row + 1, sheet.nrows):
+            first_cell_raw = str(sheet.cell_value(row_idx, 0))
+            first_cell = first_cell_raw.strip()
+
+            # Skip empty rows
+            if not first_cell or first_cell.lower() == 'nan':
+                continue
+
+            # Skip disclaimer rows at the bottom
+            if "information in this report" in first_cell.lower():
+                break
+            if "questions regarding" in first_cell.lower():
+                break
+            if "commodity exchange" in first_cell.lower():
+                continue
+            if first_cell.lower().startswith("note:"):
+                continue
+
+            first_cell_upper = first_cell.upper()
+
+            # Check for summary rows (TOTAL REGISTERED, TOTAL ELIGIBLE, COMBINED TOTAL)
+            if first_cell_upper in ["TOTAL REGISTERED", "TOTAL ELIGIBLE", "COMBINED TOTAL", "TOTAL PLEDGED"]:
+                if "GRAND_TOTAL" not in depository_data:
+                    depository_data["GRAND_TOTAL"] = {
+                        "registered": None,
+                        "eligible": None,
+                        "total": None,
+                        "received": None,
+                        "withdrawn": None,
+                        "net_change": None,
+                    }
+
+                # Column 7 is TOTAL TODAY
+                total_today = parse_number(sheet.cell_value(row_idx, 7) if sheet.ncols > 7 else None)
+                received = parse_number(sheet.cell_value(row_idx, 3) if sheet.ncols > 3 else None)
+                withdrawn = parse_number(sheet.cell_value(row_idx, 4) if sheet.ncols > 4 else None)
+                net_change = parse_number(sheet.cell_value(row_idx, 5) if sheet.ncols > 5 else None)
+
+                if "REGISTERED" in first_cell_upper:
+                    depository_data["GRAND_TOTAL"]["registered"] = total_today
+                    depository_data["GRAND_TOTAL"]["received"] = received
+                    depository_data["GRAND_TOTAL"]["net_change"] = net_change
+                elif "ELIGIBLE" in first_cell_upper:
+                    depository_data["GRAND_TOTAL"]["eligible"] = total_today
+                    depository_data["GRAND_TOTAL"]["withdrawn"] = withdrawn
+                elif "COMBINED" in first_cell_upper:
+                    depository_data["GRAND_TOTAL"]["total"] = total_today
+                continue
+
+            # Check if this is an indented data row (starts with spaces) - check RAW value
+            if first_cell_raw.startswith("  "):
+                label = first_cell.lower()
+
+                if current_depository and label in ["registered", "eligible", "total", "pledged"]:
+                    total_today = parse_number(sheet.cell_value(row_idx, 7) if sheet.ncols > 7 else None)
+                    received = parse_number(sheet.cell_value(row_idx, 3) if sheet.ncols > 3 else None)
+                    withdrawn = parse_number(sheet.cell_value(row_idx, 4) if sheet.ncols > 4 else None)
+                    net_change = parse_number(sheet.cell_value(row_idx, 5) if sheet.ncols > 5 else None)
+
+                    if label == "registered":
+                        depository_data[current_depository]["registered"] = total_today
+                        depository_data[current_depository]["received"] = received
+                        depository_data[current_depository]["withdrawn"] = withdrawn
+                        depository_data[current_depository]["net_change"] = net_change
+                    elif label == "eligible":
+                        depository_data[current_depository]["eligible"] = total_today
+                    elif label == "total":
+                        depository_data[current_depository]["total"] = total_today
+                    # Skip "pledged" rows - we don't track pledged separately
+                continue
+
+            # This is a depository name (not indented, not a summary row)
+            current_depository = clean_warehouse_name(first_cell)
+            if current_depository not in depository_data:
+                depository_data[current_depository] = {
+                    "registered": None,
+                    "eligible": None,
+                    "total": None,
+                    "received": None,
+                    "withdrawn": None,
+                    "net_change": None,
+                }
+
+        # Convert to records
+        fetched_at = datetime.now().isoformat()
+
+        for depository, data in depository_data.items():
+            # Skip depositories with no data
+            if data["registered"] is None and data["eligible"] is None and data["total"] is None:
+                continue
+
+            records.append({
+                "date": activity_date,
+                "metal": metal,
+                "warehouse": depository,
+                "registered": data["registered"],
+                "eligible": data["eligible"],
+                "total": data["total"],
+                "received": data["received"],
+                "withdrawn": data["withdrawn"],
+                "net_change": data["net_change"],
+                "report_date": report_date,
+                "activity_date": activity_date,
+                "fetched_at": fetched_at,
+            })
+
+        return records
+
+    except Exception as e:
+        print(f"Error parsing {metal} XLS: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
 
 
 def parse_copper_xls(content: bytes) -> List[Dict]:
@@ -486,6 +660,38 @@ def main():
     print()
 
     total_added = 0
+
+    # Fetch Gold
+    print("Fetching Gold stocks...")
+    gold_content = download_xls(CME_URLS["gold"])
+    if gold_content:
+        gold_records = parse_gold_silver_xls(gold_content, "gold")
+        if gold_records:
+            added = append_records(gold_records)
+            total_added += added
+            print(f"  Parsed {len(gold_records)} depository entries, added {added} new records")
+        else:
+            print("  Failed to parse Gold XLS")
+    else:
+        print("  Failed to download Gold XLS")
+
+    print()
+
+    # Fetch Silver
+    print("Fetching Silver stocks...")
+    silver_content = download_xls(CME_URLS["silver"])
+    if silver_content:
+        silver_records = parse_gold_silver_xls(silver_content, "silver")
+        if silver_records:
+            added = append_records(silver_records)
+            total_added += added
+            print(f"  Parsed {len(silver_records)} depository entries, added {added} new records")
+        else:
+            print("  Failed to parse Silver XLS")
+    else:
+        print("  Failed to download Silver XLS")
+
+    print()
 
     # Fetch Copper
     print("Fetching Copper stocks...")
