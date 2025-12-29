@@ -41,6 +41,7 @@ from cme_inventory import (
 )
 from pgm_ratio import analyze_ptpd_ratio, get_ratio_signal_text
 from price_inventory_pressure import get_current_pressure, get_pressure_table_display
+from daily_changes import get_all_changes, format_changes_html
 
 # === PAGE CONFIG ===
 st.set_page_config(
@@ -196,6 +197,18 @@ st.markdown("""
 
     .stTabs [data-baseweb="tab-border"] {
         display: none !important;
+    }
+
+    /* Sticky navigation bar */
+    .sticky-nav {
+        position: sticky;
+        top: 0;
+        z-index: 999;
+        background: linear-gradient(135deg, #1e2530, #252d3a);
+        padding: 10px 20px;
+        border-bottom: 1px solid #333;
+        margin: -1rem -1rem 1rem -1rem;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
     }
 
     /* Metal selector header */
@@ -785,6 +798,81 @@ Unlike gold/silver (monetary metals), copper price is driven by physical supply/
 📦 **Why it matters:** Low inventory = manufacturers competing for scarce supply = price rises
 """
 
+# === STICKY NAVIGATION BAR ===
+# Get quick verdict signals for nav bar
+def get_nav_signal(ind, cot, macro, term, metal_type="standard"):
+    """Get emoji for nav bar."""
+    if "error" in ind:
+        return "❓"
+    if metal_type == "copper":
+        verdict_data = get_copper_verdict(ind, cot, macro, term)
+    else:
+        verdict_data = get_quick_verdict(ind, cot, macro, term)
+    verdict = verdict_data.get("verdict", "NEUTRAL")
+    if "BULLISH" in verdict:
+        return "🟢"
+    elif "BEARISH" in verdict:
+        return "🔴"
+    return "🟡"
+
+gold_nav = get_nav_signal(gold_ind, gold_cot, macro_data, gold_term)
+silver_nav = get_nav_signal(silver_ind, silver_cot, macro_data, silver_term)
+copper_nav = get_nav_signal(copper_ind, copper_cot, copper_macro, copper_term, "copper")
+platinum_nav = get_nav_signal(platinum_ind, platinum_cot, macro_data, platinum_term)
+palladium_nav = get_nav_signal(palladium_ind, palladium_cot, macro_data, palladium_term)
+
+st.markdown(f"""
+<div class="sticky-nav">
+    <div style="display: flex; justify-content: center; align-items: center; gap: 24px; flex-wrap: wrap;">
+        <span style="font-size: 0.95rem; color: #fff;">
+            <strong>Gold</strong> {gold_nav}
+        </span>
+        <span style="color: #444;">|</span>
+        <span style="font-size: 0.95rem; color: #fff;">
+            <strong>Silver</strong> {silver_nav}
+        </span>
+        <span style="color: #444;">|</span>
+        <span style="font-size: 0.95rem; color: #fff;">
+            <strong>Copper</strong> {copper_nav}
+        </span>
+        <span style="color: #444;">|</span>
+        <span style="font-size: 0.95rem; color: #fff;">
+            <strong>Platinum</strong> {platinum_nav}
+        </span>
+        <span style="color: #444;">|</span>
+        <span style="font-size: 0.95rem; color: #fff;">
+            <strong>Palladium</strong> {palladium_nav}
+        </span>
+        <span style="color: #444; margin-left: 16px;">|</span>
+        <span style="font-size: 0.85rem; color: #888;">
+            Updated: {datetime.now().strftime("%H:%M")}
+        </span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# === WHAT CHANGED TODAY ===
+# Get pressure data for change detection
+try:
+    copper_pressure_data = get_current_pressure("copper")
+    platinum_pressure_data = get_current_pressure("platinum")
+    palladium_pressure_data = get_current_pressure("palladium")
+except Exception:
+    copper_pressure_data = {"error": "unavailable"}
+    platinum_pressure_data = {"error": "unavailable"}
+    palladium_pressure_data = {"error": "unavailable"}
+
+# Detect changes across all metals
+daily_changes = get_all_changes(
+    gold_ind, silver_ind, copper_ind,
+    platinum_ind, palladium_ind,
+    copper_pressure_data, platinum_pressure_data, palladium_pressure_data
+)
+
+# Display the changes section
+changes_html = format_changes_html(daily_changes)
+st.markdown(changes_html, unsafe_allow_html=True)
+
 # === HERO SECTION - LIVE PRICES ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 
@@ -864,99 +952,6 @@ with hero_col3:
         """, unsafe_allow_html=True)
     else:
         st.error("Copper price unavailable")
-
-# === AI VERDICT SECTION ===
-st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-st.markdown("### 🤖 AI Market Verdict")
-
-verdict_col1, verdict_col2, verdict_col3 = st.columns(3)
-
-with verdict_col1:
-    if "error" not in gold_ind:
-        gold_verdict = get_quick_verdict(gold_ind, gold_cot, macro_data, gold_term)
-        verdict = gold_verdict["verdict"]
-        score = gold_verdict["net_score"]
-
-        if "BULLISH" in verdict:
-            verdict_class = "verdict-bullish"
-            verdict_color = "#00c853"
-        elif "BEARISH" in verdict:
-            verdict_class = "verdict-bearish"
-            verdict_color = "#ff1744"
-        else:
-            verdict_class = "verdict-neutral"
-            verdict_color = "#ffc107"
-
-        st.markdown(f"""
-        <div class="verdict-box {verdict_class}">
-            <p style="color: #888; font-size: 0.9rem; margin: 0;">GOLD</p>
-            <p class="verdict-text" style="color: {verdict_color};">{verdict}</p>
-            <p class="verdict-score">Score: {score:+d} | Bullish: {gold_verdict['bullish_signals']} | Bearish: {gold_verdict['bearish_signals']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        with st.expander("View Signal Breakdown"):
-            for name, direction, desc in gold_verdict['signals']:
-                emoji = signal_emoji(direction)
-                st.write(f"{emoji} **{name}:** {desc}")
-
-with verdict_col2:
-    if "error" not in silver_ind:
-        silver_verdict = get_quick_verdict(silver_ind, silver_cot, macro_data, silver_term)
-        verdict = silver_verdict["verdict"]
-        score = silver_verdict["net_score"]
-
-        if "BULLISH" in verdict:
-            verdict_class = "verdict-bullish"
-            verdict_color = "#00c853"
-        elif "BEARISH" in verdict:
-            verdict_class = "verdict-bearish"
-            verdict_color = "#ff1744"
-        else:
-            verdict_class = "verdict-neutral"
-            verdict_color = "#ffc107"
-
-        st.markdown(f"""
-        <div class="verdict-box {verdict_class}">
-            <p style="color: #888; font-size: 0.9rem; margin: 0;">SILVER</p>
-            <p class="verdict-text" style="color: {verdict_color};">{verdict}</p>
-            <p class="verdict-score">Score: {score:+d} | Bullish: {silver_verdict['bullish_signals']} | Bearish: {silver_verdict['bearish_signals']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        with st.expander("View Signal Breakdown"):
-            for name, direction, desc in silver_verdict['signals']:
-                emoji = signal_emoji(direction)
-                st.write(f"{emoji} **{name}:** {desc}")
-
-with verdict_col3:
-    if "error" not in copper_ind:
-        copper_verdict = get_copper_verdict(copper_ind, copper_cot, copper_macro, copper_term)
-        verdict = copper_verdict["verdict"]
-        score = copper_verdict["net_score"]
-
-        if "BULLISH" in verdict:
-            verdict_class = "verdict-bullish"
-            verdict_color = "#00c853"
-        elif "BEARISH" in verdict:
-            verdict_class = "verdict-bearish"
-            verdict_color = "#ff1744"
-        else:
-            verdict_class = "verdict-neutral"
-            verdict_color = "#ffc107"
-
-        st.markdown(f"""
-        <div class="verdict-box {verdict_class}">
-            <p style="color: #888; font-size: 0.9rem; margin: 0;">COPPER</p>
-            <p class="verdict-text" style="color: {verdict_color};">{verdict}</p>
-            <p class="verdict-score">Score: {score:+d} | Bullish: {copper_verdict['bullish_signals']} | Bearish: {copper_verdict['bearish_signals']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        with st.expander("View Signal Breakdown"):
-            for name, direction, desc in copper_verdict['signals']:
-                emoji = signal_emoji(direction)
-                st.write(f"{emoji} **{name}:** {desc}")
 
 # === PROFESSIONAL 5-PILLAR ANALYSIS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
@@ -1339,153 +1334,6 @@ with st.expander("📊 Prediction Accuracy Dashboard", expanded=False):
     except Exception as e:
         st.error(f"Error loading accuracy data: {str(e)}")
 
-# === CME WAREHOUSE INVENTORIES ===
-st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-st.markdown("### 📦 CME Warehouse Inventories")
-st.caption("Physical inventory levels from CME warehouses. Falling = bullish pressure, Rising = bearish pressure.")
-
-try:
-    inv_col1, inv_col2, inv_col3 = st.columns(3)
-
-    # Helper function to determine price trend from indicators
-    def get_price_trend(indicators: dict) -> str:
-        """Determine price trend from indicator data."""
-        if "error" in indicators:
-            return "flat"
-        sma50 = indicators.get("sma50")
-        sma200 = indicators.get("sma200")
-        close = indicators.get("close")
-        if close and sma50 and sma200:
-            if close > sma50 > sma200:
-                return "rising"
-            elif close < sma50 < sma200:
-                return "falling"
-        return "flat"
-
-    # Helper function to get macro state
-    def get_macro_state_for_metal(metal: str) -> str:
-        """Get macro state for signal calculation."""
-        if metal == "copper":
-            # Copper cares about industrial production
-            copper_bias = copper_macro.get("macro_bias", "neutral") if "error" not in copper_macro else "neutral"
-            if copper_bias == "bullish":
-                return "supportive"
-            elif copper_bias == "bearish":
-                return "hostile"
-            return "neutral"
-        else:
-            # Platinum/Palladium - use general macro
-            general_bias = macro_data.get("macro_bias", "neutral") if "error" not in macro_data else "neutral"
-            if general_bias == "bullish":
-                return "supportive"
-            elif general_bias == "bearish":
-                return "hostile"
-            return "neutral"
-
-    metals_config = [
-        ("copper", inv_col1, copper_ind, "#B87333"),
-        ("platinum", inv_col2, gold_ind, "#E5E4E2"),  # Use gold_ind as proxy for now
-        ("palladium", inv_col3, gold_ind, "#CED0DD"),
-    ]
-
-    for metal, col, indicators, color in metals_config:
-        with col:
-            inv = get_latest_inventory(metal)
-            state = get_inventory_state(metal)
-
-            if inv and inv.get("total"):
-                # Display total with change
-                change_5d_pct = inv.get("change_5d_pct")
-                delta_str = f"{change_5d_pct:+.1f}% (5D)" if change_5d_pct is not None else None
-
-                st.markdown(f"""
-                <div style="background: linear-gradient(145deg, #1a2332 0%, #1e2940 100%);
-                            border-radius: 12px; padding: 16px; border-left: 4px solid {color};">
-                    <div style="color: #888; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px;">{metal.upper()}</div>
-                    <div style="font-size: 1.5rem; color: #fff; font-weight: bold; margin: 4px 0;">
-                        {inv['total']:,} <span style="font-size: 0.9rem; color: #888;">tons</span>
-                    </div>
-                """, unsafe_allow_html=True)
-
-                # State badge
-                if state and state.get("state") != "unknown":
-                    st.markdown(f"""
-                    <div style="margin: 8px 0;">
-                        <span style="background: {state['color']}22; color: {state['color']};
-                                     padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;">
-                            {state['emoji']} {state['state'].upper()}
-                        </span>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                # 5D and 20D changes
-                change_20d_pct = inv.get("change_20d_pct")
-                st.markdown(f"""
-                    <div style="display: flex; gap: 12px; margin-top: 8px;">
-                        <span style="color: {'#00c853' if change_5d_pct and change_5d_pct < 0 else '#ff5252' if change_5d_pct and change_5d_pct > 0 else '#888'}; font-size: 0.85rem;">
-                            5D: {change_5d_pct:+.1f}%
-                        </span>
-                        <span style="color: {'#00c853' if change_20d_pct and change_20d_pct < 0 else '#ff5252' if change_20d_pct and change_20d_pct > 0 else '#888'}; font-size: 0.85rem;">
-                            20D: {change_20d_pct:+.1f}%
-                        </span>
-                    </div>
-                """ if change_5d_pct is not None and change_20d_pct is not None else "", unsafe_allow_html=True)
-
-                st.markdown("</div>", unsafe_allow_html=True)
-
-                # Combined signal
-                price_trend = get_price_trend(indicators)
-                macro_state = get_macro_state_for_metal(metal)
-                signal = get_inventory_signal(metal, price_trend, macro_state)
-
-                if signal:
-                    st.markdown(f"""
-                    <div style="background: #1e2530; border-radius: 8px; padding: 10px; margin-top: 8px;">
-                        <div style="color: {signal['color']}; font-weight: bold; font-size: 0.9rem;">
-                            {signal['emoji']} {signal['title']}
-                        </div>
-                        <div style="color: #888; font-size: 0.75rem; margin-top: 4px;">
-                            {signal['description']}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div style="background: linear-gradient(145deg, #1a2332 0%, #1e2940 100%);
-                            border-radius: 12px; padding: 16px; border-left: 4px solid {color};">
-                    <div style="color: #888; font-size: 0.8rem; text-transform: uppercase;">{metal.upper()}</div>
-                    <div style="color: #666; font-size: 0.9rem; margin-top: 8px;">
-                        No data available yet.<br>
-                        <span style="font-size: 0.8rem;">Data fetched daily after 5pm ET.</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-    # Expander with trend charts and details
-    with st.expander("📈 View Inventory Trends & Details", expanded=False):
-        st.markdown("""
-        **How to interpret inventory data:**
-        - 🟢 **Drawdown** (falling): Physical demand exceeding supply - bullish pressure building
-        - 🟡 **Flat**: Market balanced - price driven by macro/speculation
-        - 🔴 **Build** (rising): Supply exceeding demand - rallies vulnerable
-
-        *"When price and inventory disagree, inventory wins — eventually."*
-        """)
-
-        trend_col1, trend_col2, trend_col3 = st.columns(3)
-
-        for metal, col in [("copper", trend_col1), ("platinum", trend_col2), ("palladium", trend_col3)]:
-            with col:
-                st.markdown(f"**{metal.title()} 30-Day Trend**")
-                trend_df = get_inventory_trend(metal, days=30)
-                if not trend_df.empty:
-                    st.line_chart(trend_df["Total"], use_container_width=True, height=150)
-                else:
-                    st.caption("Insufficient data for trend chart")
-
-except Exception as e:
-    st.info(f"CME inventory data not yet available. Data is fetched daily via GitHub Actions.")
-
 # === MACRO DRIVERS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 st.markdown("### 🌍 Macro Environment")
@@ -1551,12 +1399,56 @@ if "error" not in macro_data:
             st.metric("MOVE Index", f"{val:.1f}", f"{chg:+.1f}")
             st.caption(regime)
 
-# === TECHNICAL ANALYSIS TABS ===
+# === METAL ANALYSIS ACCORDIONS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-st.markdown("### 📊 Technical Analysis")
-st.markdown('<p class="metal-selector-header">👇 Select a metal to view detailed analysis</p>', unsafe_allow_html=True)
+st.markdown("### 📊 Metal Analysis")
+st.markdown('<p class="metal-selector-header">Expand any metal for detailed technical analysis</p>', unsafe_allow_html=True)
 
-tab_gold, tab_silver, tab_copper, tab_platinum, tab_palladium = st.tabs(["🥇 GOLD", "🥈 SILVER", "🔶 COPPER", "⚪ PLATINUM", "⬜ PALLADIUM"])
+
+def get_verdict_info(ind, cot, macro, term, metal_type="standard"):
+    """Get verdict info for accordion header."""
+    if "error" in ind:
+        return "❓", "UNKNOWN", "#888"
+
+    if metal_type == "copper":
+        verdict_data = get_copper_verdict(ind, cot, macro, term)
+    else:
+        verdict_data = get_quick_verdict(ind, cot, macro, term)
+
+    verdict = verdict_data.get("verdict", "NEUTRAL")
+
+    if "BULLISH" in verdict:
+        return "🟢", verdict, "#00c853"
+    elif "BEARISH" in verdict:
+        return "🔴", verdict, "#ff5252"
+    else:
+        return "🟡", verdict, "#ffc107"
+
+
+def get_daily_change(ind):
+    """Get daily price change percentage."""
+    if "error" in ind:
+        return None
+    hist = ind.get("history")
+    if hist is not None and len(hist) >= 2:
+        today = hist["Close"].iloc[-1]
+        yesterday = hist["Close"].iloc[-2]
+        return ((today / yesterday) - 1) * 100
+    return None
+
+
+# Prepare accordion header data for all metals
+gold_emoji, gold_verdict_text, gold_color = get_verdict_info(gold_ind, gold_cot, macro_data, gold_term)
+silver_emoji, silver_verdict_text, silver_color = get_verdict_info(silver_ind, silver_cot, macro_data, silver_term)
+copper_emoji, copper_verdict_text, copper_color = get_verdict_info(copper_ind, copper_cot, copper_macro, copper_term, "copper")
+platinum_emoji, platinum_verdict_text, platinum_color = get_verdict_info(platinum_ind, platinum_cot, macro_data, platinum_term)
+palladium_emoji, palladium_verdict_text, palladium_color = get_verdict_info(palladium_ind, palladium_cot, macro_data, palladium_term)
+
+gold_change = get_daily_change(gold_ind)
+silver_change = get_daily_change(silver_ind)
+copper_change = get_daily_change(copper_ind)
+platinum_change = get_daily_change(platinum_ind)
+palladium_change = get_daily_change(palladium_ind)
 
 def render_technical_tab(ind, cot, term, metal_name):
     """Render technical analysis for a metal."""
@@ -1722,13 +1614,56 @@ def render_technical_tab(ind, cot, term, metal_name):
         st.caption(f"Data through: {last_date} (market close)")
         st.line_chart(chart_data, use_container_width=True)
 
-with tab_gold:
+# === GOLD ACCORDION ===
+gold_header = f"🥇 GOLD — {format_price(gold_price)} — {gold_emoji} {gold_verdict_text}"
+if gold_change is not None:
+    gold_header += f" — {gold_change:+.1f}% today"
+
+with st.expander(gold_header, expanded=False):
     render_technical_tab(gold_ind, gold_cot, gold_term, "Gold")
 
-with tab_silver:
+    # AI Analysis button inside accordion
+    if st.button("🤖 Generate Gold AI Analysis", use_container_width=True, key="btn_gold_ai_accordion"):
+        with st.spinner("Claude is analyzing gold markets..."):
+            gold_analysis = generate_ai_summary(
+                "Gold", gold_price,
+                gold_ind if "error" not in gold_ind else {},
+                gold_cot, macro_data, gold_term,
+                gold_five if "error" not in gold_five else None
+            )
+            if gold_analysis:
+                st.markdown(gold_analysis)
+            else:
+                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
+
+# === SILVER ACCORDION ===
+silver_header = f"🥈 SILVER — {format_price(silver_price)} — {silver_emoji} {silver_verdict_text}"
+if silver_change is not None:
+    silver_header += f" — {silver_change:+.1f}% today"
+
+with st.expander(silver_header, expanded=False):
     render_technical_tab(silver_ind, silver_cot, silver_term, "Silver")
 
-with tab_copper:
+    # AI Analysis button inside accordion
+    if st.button("🤖 Generate Silver AI Analysis", use_container_width=True, key="btn_silver_ai_accordion"):
+        with st.spinner("Claude is analyzing silver markets..."):
+            silver_analysis = generate_ai_summary(
+                "Silver", silver_price,
+                silver_ind if "error" not in silver_ind else {},
+                silver_cot, macro_data, silver_term,
+                silver_five if "error" not in silver_five else None
+            )
+            if silver_analysis:
+                st.markdown(silver_analysis)
+            else:
+                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
+
+# === COPPER ACCORDION ===
+copper_header = f"🔶 COPPER — {format_price(copper_price)}/lb — {copper_emoji} {copper_verdict_text}"
+if copper_change is not None:
+    copper_header += f" — {copper_change:+.1f}% today"
+
+with st.expander(copper_header, expanded=False):
     render_technical_tab(copper_ind, copper_cot, copper_term, "Copper")
 
     # Copper-specific macro indicators
@@ -1868,7 +1803,26 @@ with tab_copper:
     else:
         st.warning("Pressure analysis unavailable")
 
-with tab_platinum:
+    # AI Analysis button inside accordion
+    if st.button("🤖 Generate Copper AI Analysis", use_container_width=True, key="btn_copper_ai_accordion"):
+        with st.spinner("Claude is analyzing copper markets..."):
+            copper_analysis = generate_ai_summary(
+                "Copper", copper_price,
+                copper_ind if "error" not in copper_ind else {},
+                copper_cot, copper_macro, copper_term,
+                copper_five if "error" not in copper_five else None
+            )
+            if copper_analysis:
+                st.markdown(copper_analysis)
+            else:
+                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
+
+# === PLATINUM ACCORDION ===
+platinum_header = f"⚪ PLATINUM — {format_price(platinum_price)} — {platinum_emoji} {platinum_verdict_text}"
+if platinum_change is not None:
+    platinum_header += f" — {platinum_change:+.1f}% today"
+
+with st.expander(platinum_header, expanded=False):
     render_technical_tab(platinum_ind, platinum_cot, platinum_term, "Platinum")
 
     # Platinum CME Inventory
@@ -1974,7 +1928,26 @@ with tab_platinum:
     else:
         st.warning("Pressure analysis unavailable")
 
-with tab_palladium:
+    # AI Analysis button inside accordion
+    if st.button("🤖 Generate Platinum AI Analysis", use_container_width=True, key="btn_platinum_ai_accordion"):
+        with st.spinner("Claude is analyzing platinum markets..."):
+            platinum_analysis = generate_ai_summary(
+                "Platinum", platinum_price,
+                platinum_ind if "error" not in platinum_ind else {},
+                platinum_cot, macro_data, platinum_term,
+                None  # No 5-pillar for PGMs yet
+            )
+            if platinum_analysis:
+                st.markdown(platinum_analysis)
+            else:
+                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
+
+# === PALLADIUM ACCORDION ===
+palladium_header = f"⬜ PALLADIUM — {format_price(palladium_price)} — {palladium_emoji} {palladium_verdict_text}"
+if palladium_change is not None:
+    palladium_header += f" — {palladium_change:+.1f}% today"
+
+with st.expander(palladium_header, expanded=False):
     render_technical_tab(palladium_ind, palladium_cot, palladium_term, "Palladium")
 
     # Palladium CME Inventory
@@ -2096,74 +2069,8 @@ with tab_palladium:
     else:
         st.warning("Pressure analysis unavailable")
 
-# === DETAILED AI ANALYSIS ===
-st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-st.markdown("### 🧠 Detailed AI Analysis")
-st.caption("Click to generate a comprehensive AI-powered market analysis")
-
-ai_col1, ai_col2, ai_col3 = st.columns(3)
-
-with ai_col1:
-    if st.button("🥇 Generate Gold Analysis", use_container_width=True, type="primary", key="btn_gold_ai"):
-        with st.spinner("Claude is analyzing gold markets..."):
-            gold_analysis = generate_ai_summary(
-                "Gold", gold_price,
-                gold_ind if "error" not in gold_ind else {},
-                gold_cot, macro_data, gold_term,
-                gold_five if "error" not in gold_five else None  # Use 5-pillar analysis
-            )
-            if gold_analysis:
-                st.markdown(gold_analysis)
-            else:
-                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
-
-with ai_col2:
-    if st.button("🥈 Generate Silver Analysis", use_container_width=True, type="primary", key="btn_silver_ai"):
-        with st.spinner("Claude is analyzing silver markets..."):
-            silver_analysis = generate_ai_summary(
-                "Silver", silver_price,
-                silver_ind if "error" not in silver_ind else {},
-                silver_cot, macro_data, silver_term,
-                silver_five if "error" not in silver_five else None  # Use 5-pillar analysis
-            )
-            if silver_analysis:
-                st.markdown(silver_analysis)
-            else:
-                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
-
-with ai_col3:
-    if st.button("🔶 Generate Copper Analysis", use_container_width=True, type="primary", key="btn_copper_ai"):
-        with st.spinner("Claude is analyzing copper markets..."):
-            copper_analysis = generate_ai_summary(
-                "Copper", copper_price,
-                copper_ind if "error" not in copper_ind else {},
-                copper_cot, copper_macro, copper_term,
-                copper_five if "error" not in copper_five else None  # Use 5-pillar analysis
-            )
-            if copper_analysis:
-                st.markdown(copper_analysis)
-            else:
-                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
-
-# Row 2: Platinum and Palladium
-ai_col4, ai_col5, ai_col6 = st.columns(3)
-
-with ai_col4:
-    if st.button("⚪ Generate Platinum Analysis", use_container_width=True, type="primary", key="btn_platinum_ai"):
-        with st.spinner("Claude is analyzing platinum markets..."):
-            platinum_analysis = generate_ai_summary(
-                "Platinum", platinum_price,
-                platinum_ind if "error" not in platinum_ind else {},
-                platinum_cot, macro_data, platinum_term,
-                None  # No 5-pillar for PGMs yet
-            )
-            if platinum_analysis:
-                st.markdown(platinum_analysis)
-            else:
-                st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
-
-with ai_col5:
-    if st.button("⬜ Generate Palladium Analysis", use_container_width=True, type="primary", key="btn_palladium_ai"):
+    # AI Analysis button inside accordion
+    if st.button("🤖 Generate Palladium AI Analysis", use_container_width=True, key="btn_palladium_ai_accordion"):
         with st.spinner("Claude is analyzing palladium markets..."):
             palladium_analysis = generate_ai_summary(
                 "Palladium", palladium_price,
