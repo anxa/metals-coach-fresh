@@ -24,6 +24,9 @@ data/*.csv
 # And include CME inventory data (updated daily by GitHub Actions)
 !data/cme_inventory.csv
 
+# And include prediction log (updated by Streamlit app via GitHub API)
+!data/prediction_log.csv
+
 # IDE
 .vscode/
 .idea/

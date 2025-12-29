@@ -9,6 +9,7 @@ Features:
 - Tracks invalidation levels and whether they were hit
 - Updates actuals automatically when data becomes available
 - Calculates accuracy statistics by state
+- Persists data to GitHub (survives Streamlit Cloud reboots)
 
 Usage:
     from prediction_tracker import auto_log_daily, update_actuals, get_accuracy_stats
@@ -30,8 +31,15 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 import pytz
 
+from github_storage import (
+    read_csv_from_github,
+    write_csv_to_github,
+    github_storage_available
+)
+
 DATA_DIR = Path(__file__).resolve().parent / "data"
 PREDICTION_LOG_PATH = DATA_DIR / "prediction_log.csv"
+GITHUB_PREDICTION_PATH = "data/prediction_log.csv"
 
 # Timezone for US market hours
 ET = pytz.timezone("US/Eastern")
@@ -52,17 +60,62 @@ PREDICTION_COLUMNS = [
 
 
 def load_prediction_log() -> pd.DataFrame:
-    """Load existing prediction log or create empty DataFrame."""
+    """
+    Load existing prediction log from GitHub (primary) or local file (fallback).
+
+    Priority:
+    1. GitHub storage (if configured) - persists across Streamlit reboots
+    2. Local file - for development or when GitHub not configured
+    """
+    # Try GitHub first (preferred for Streamlit Cloud)
+    if github_storage_available():
+        df = read_csv_from_github(GITHUB_PREDICTION_PATH)
+        if df is not None and not df.empty:
+            # Parse date columns
+            date_cols = ["date", "logged_at", "updated_at", "invalidation_date"]
+            for col in date_cols:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], errors="coerce")
+            return df
+
+    # Fallback to local file
     if PREDICTION_LOG_PATH.exists():
-        df = pd.read_csv(PREDICTION_LOG_PATH, parse_dates=["date", "logged_at", "updated_at", "invalidation_date"])
+        df = pd.read_csv(
+            PREDICTION_LOG_PATH,
+            parse_dates=["date", "logged_at", "updated_at", "invalidation_date"]
+        )
         return df
+
     return pd.DataFrame(columns=PREDICTION_COLUMNS)
 
 
-def save_prediction_log(df: pd.DataFrame) -> None:
-    """Save prediction log to CSV."""
-    DATA_DIR.mkdir(exist_ok=True)
-    df.to_csv(PREDICTION_LOG_PATH, index=False)
+def save_prediction_log(df: pd.DataFrame) -> bool:
+    """
+    Save prediction log to GitHub (primary) and local file (backup).
+
+    Returns:
+        True if saved successfully to at least one location
+    """
+    saved = False
+
+    # Always save locally as backup
+    try:
+        DATA_DIR.mkdir(exist_ok=True)
+        df.to_csv(PREDICTION_LOG_PATH, index=False)
+        saved = True
+    except Exception as e:
+        print(f"Failed to save locally: {e}")
+
+    # Save to GitHub if configured (primary for Streamlit Cloud)
+    if github_storage_available():
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        commit_msg = f"Update prediction log {today}"
+        if write_csv_to_github(df, GITHUB_PREDICTION_PATH, commit_msg):
+            saved = True
+        else:
+            print("Failed to save to GitHub")
+
+    return saved
 
 
 def is_market_closed() -> bool:
