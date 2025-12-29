@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(from overbought - wait for pullback\" instead of just \"RSI is 72\".\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(source .venv/bin/activate)",
+      "Bash(python -c:*)",
+      "Bash(wc:*)",
+      "Bash(python:*)",
+      "Bash(what usually happens next, and how wrong could I be?\"\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(grep:*)",
+      "Bash(pip install:*)",
+      "Bash(cat:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd CME warehouse inventory tracking system\n\nImplements automated daily tracking of CME warehouse inventories for\nCopper, Platinum, and Palladium with GitHub Actions scheduling.\n\nNew files:\n- scripts/fetch_cme_inventory.py: Downloads and parses CME XLS reports\n- .github/workflows/cme-inventory.yml: Daily automation at 10:30pm ET\n- cme_inventory.py: Integration module with signal generation\n- data/cme_inventory.csv: Per-warehouse inventory data\n\nFeatures:\n- Per-warehouse granularity \\(BALTIMORE, DETROIT, etc.\\)\n- 5D/20D rate of change calculation\n- Inventory state detection \\(drawdown/flat/build\\)\n- Combined signal matrix \\(inventory + price + macro\\)\n- UI section with trend charts and action guidance\n\nBased on inventory_data.md framework:\n\"When price and inventory disagree, inventory wins — eventually.\"\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+    ]
+  }
+}
