@@ -15,6 +15,16 @@ Change types detected:
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 
+from data_store import get_yesterday_spot_close
+
+# Symbol mapping for spot price history lookup
+METAL_SYMBOLS = {
+    "gold": "XAU",
+    "silver": "XAG",
+    "copper": "HG",
+    "platinum": "XPT",
+    "palladium": "XPD",
+}
 
 # Emoji mappings for metals
 METAL_EMOJIS = {
@@ -26,18 +36,45 @@ METAL_EMOJIS = {
 }
 
 
-def detect_price_change(ind: dict, threshold: float = 1.0) -> Optional[str]:
-    """Detect significant daily price changes."""
-    if "error" in ind:
+def detect_price_change(metal: str, spot_price: float = None, ind: dict = None, threshold: float = 1.0) -> Optional[str]:
+    """
+    Detect significant daily price changes using spot-to-spot comparison.
+
+    Compares today's live spot price against yesterday's spot close from
+    Gold-API history, ensuring an apples-to-apples comparison.
+
+    Falls back to futures data if spot history isn't available (e.g., platinum).
+
+    Args:
+        metal: Metal name (gold, silver, copper, platinum, palladium)
+        spot_price: Current live spot price from Gold-API
+        ind: Indicator dict with futures history (fallback for metals like platinum)
+        threshold: Minimum % change to report (default 1.0%)
+
+    Returns:
+        Change description string, or None if no significant change
+    """
+    if spot_price is None:
         return None
 
-    hist = ind.get("history")
-    if hist is None or len(hist) < 2:
+    # Get yesterday's spot close from our Gold-API history
+    symbol = METAL_SYMBOLS.get(metal)
+    if not symbol:
         return None
 
-    today = hist["Close"].iloc[-1]
-    yesterday = hist["Close"].iloc[-2]
-    pct_change = ((today / yesterday) - 1) * 100
+    yesterday_close = get_yesterday_spot_close(symbol)
+
+    # Fallback to futures data for metals without spot history (e.g., platinum)
+    if yesterday_close is None and ind is not None and "error" not in ind:
+        hist = ind.get("history")
+        if hist is not None and len(hist) >= 2:
+            yesterday_close = hist["Close"].iloc[-2]
+
+    if yesterday_close is None:
+        return None
+
+    # Calculate change
+    pct_change = ((spot_price / yesterday_close) - 1) * 100
 
     if abs(pct_change) >= threshold:
         direction = "up" if pct_change > 0 else "down"
@@ -152,10 +189,18 @@ def get_all_changes(
     gold_ind: dict, silver_ind: dict, copper_ind: dict,
     platinum_ind: dict, palladium_ind: dict,
     copper_pressure: dict = None, platinum_pressure: dict = None,
-    palladium_pressure: dict = None
+    palladium_pressure: dict = None,
+    gold_price: float = None, silver_price: float = None,
+    copper_price: float = None, platinum_price: float = None,
+    palladium_price: float = None
 ) -> Dict[str, List[str]]:
     """
     Get all significant changes across all metals.
+
+    Args:
+        *_ind: Indicator data for each metal
+        *_pressure: Pressure/inventory data for copper, platinum, palladium
+        *_price: Live spot prices for accurate daily change calculation
 
     Returns dict mapping metal name to list of change descriptions.
     """
@@ -167,18 +212,18 @@ def get_all_changes(
         "palladium": [],
     }
 
-    # Check each metal
+    # Check each metal (name, indicators, pressure, spot_price)
     metals_data = [
-        ("gold", gold_ind, None),
-        ("silver", silver_ind, None),
-        ("copper", copper_ind, copper_pressure),
-        ("platinum", platinum_ind, platinum_pressure),
-        ("palladium", palladium_ind, palladium_pressure),
+        ("gold", gold_ind, None, gold_price),
+        ("silver", silver_ind, None, silver_price),
+        ("copper", copper_ind, copper_pressure, copper_price),
+        ("platinum", platinum_ind, platinum_pressure, platinum_price),
+        ("palladium", palladium_ind, palladium_pressure, palladium_price),
     ]
 
-    for metal, ind, pressure in metals_data:
-        # Price changes
-        price_change = detect_price_change(ind)
+    for metal, ind, pressure, spot_price in metals_data:
+        # Price changes - use spot-to-spot comparison, with futures fallback for platinum
+        price_change = detect_price_change(metal, spot_price, ind)
         if price_change:
             changes[metal].append(price_change)
 

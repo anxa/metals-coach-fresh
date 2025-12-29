@@ -7,6 +7,7 @@ API quota on every indicator computation.
 """
 import pandas as pd
 from pathlib import Path
+from typing import Tuple, Optional
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
@@ -91,6 +92,74 @@ def full_history_path(symbol: str) -> Path:
     """Return path to full history CSV file (from yfinance bulk download)."""
     ensure_data_dir()
     return DATA_DIR / f"{symbol.lower()}_history_full.csv"
+
+
+def get_yesterday_spot_close(symbol: str) -> float:
+    """
+    Get yesterday's closing spot price from Gold-API history.
+
+    Looks at the spot price CSV and finds the last price from a date
+    prior to today. This allows proper spot-to-spot daily change calculation.
+
+    Args:
+        symbol: e.g., 'XAU', 'XAG', 'HG', 'XPT', 'XPD'
+
+    Returns:
+        Yesterday's closing spot price, or None if not available
+    """
+    p = csv_path(symbol)
+    if not p.exists():
+        return None
+
+    df = pd.read_csv(p, parse_dates=["timestamp"])
+    if df.empty:
+        return None
+
+    # Extract date from timestamp
+    df["date"] = df["timestamp"].dt.date
+    today = pd.Timestamp.now().date()
+
+    # Filter to dates before today
+    yesterday_data = df[df["date"] < today]
+
+    if yesterday_data.empty:
+        return None
+
+    # Get the last price from the most recent past date
+    # (This is effectively yesterday's closing spot price)
+    yesterday_data = yesterday_data.sort_values("timestamp")
+    return yesterday_data["close"].iloc[-1]
+
+
+def get_spot_high_and_days(symbol: str) -> Tuple[Optional[float], int]:
+    """
+    Get the highest spot price and number of days of data available.
+
+    Used to calculate "% from X-day high" when we don't have 52 weeks
+    of spot data yet.
+
+    Args:
+        symbol: e.g., 'XAU', 'XAG', 'HG', 'XPT', 'XPD'
+
+    Returns:
+        (high_price, num_days) or (None, 0) if no data
+    """
+    p = csv_path(symbol)
+    if not p.exists():
+        return None, 0
+
+    df = pd.read_csv(p, parse_dates=["timestamp"])
+    if df.empty:
+        return None, 0
+
+    # Get unique dates
+    df["date"] = df["timestamp"].dt.date
+    unique_dates = df["date"].nunique()
+
+    # Get high from all data
+    high = df["close"].max()
+
+    return high, unique_dates
 
 
 def load_history(symbol: str) -> pd.DataFrame:

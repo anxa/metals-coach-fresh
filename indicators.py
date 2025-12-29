@@ -755,12 +755,20 @@ def fetch_spot_and_futures(metal: str = "gold") -> Dict[str, Any]:
     Use Gold-API for spot prices instead (handled in alpha_vantage_fetcher.py).
 
     Args:
-        metal: "gold" or "silver"
+        metal: "gold", "silver", or "copper"
 
     Returns:
         Dict with futures_price and futures_ticker
     """
-    futures_ticker = "GC=F" if metal.lower() == "gold" else "SI=F"
+    # Map metals to their futures tickers
+    futures_tickers = {
+        "gold": "GC=F",
+        "silver": "SI=F",
+        "copper": "HG=F",
+    }
+
+    metal_lower = metal.lower()
+    futures_ticker = futures_tickers.get(metal_lower)
 
     result = {
         "spot_price": None,  # Get from Gold-API instead
@@ -769,14 +777,20 @@ def fetch_spot_and_futures(metal: str = "gold") -> Dict[str, Any]:
         "futures_ticker": futures_ticker,
     }
 
-    # Get futures price only (spot tickers are broken on Yahoo)
-    try:
-        t = yf.Ticker(futures_ticker)
-        hist = t.history(period="1d")
-        if not hist.empty:
-            result["futures_price"] = float(hist["Close"].iloc[-1])
-    except Exception:
-        pass
+    # For copper, we use futures as the primary price (Gold-API copper is unreliable)
+    # So futures_price would be redundant - leave it as None
+    if metal_lower == "copper":
+        return result
+
+    # Get futures price for gold/silver only
+    if futures_ticker:
+        try:
+            t = yf.Ticker(futures_ticker)
+            hist = t.history(period="1d")
+            if not hist.empty:
+                result["futures_price"] = float(hist["Close"].iloc[-1])
+        except Exception:
+            pass
 
     return result
 

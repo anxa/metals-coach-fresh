@@ -120,34 +120,23 @@ def fetch_silver_price() -> Tuple[Optional[float], Optional[dict]]:
 
 
 def fetch_copper_price() -> Tuple[Optional[float], Optional[dict]]:
-    """Fetch copper price: prefer Gold-API (HG symbol), then futures on Yahoo."""
-    try:
-        url = "https://api.gold-api.com/price/HG"
-        resp = requests.get(url, timeout=5)
-        resp.raise_for_status()
-        data = resp.json()
-        price = data.get("price")
-        if price is not None:
-            timestamp = data.get("updatedAt") or datetime.now().isoformat()
-            meta = {
-                "ticker": data.get("symbol", "HG"),
-                "data_type": "spot",
-                "source": "gold-api",
-                "timestamp": timestamp,
-                "close": float(price),
-            }
-            # Persist daily snapshot to CSV
-            try:
-                append_price("HG", timestamp, price)
-            except Exception as persist_err:
-                print(f"Failed to persist copper snapshot: {persist_err}")
-            return float(price), meta
-    except Exception as e:
-        print(f"Gold-API (copper) fetch failed or not available: {e}")
+    """Fetch copper price from Yahoo Finance futures (HG=F).
 
-    # Fallback to Yahoo Finance futures
+    Note: Gold-API copper data is unreliable (returns stale/incorrect prices),
+    so we use Yahoo Finance futures directly for copper.
+    """
+    # Use Yahoo Finance futures directly (Gold-API copper data is unreliable)
     tickers = [(COPPER_FUT, "futures")]
-    return _try_tickers(tickers)
+    price, meta = _try_tickers(tickers)
+
+    # Persist daily snapshot to CSV for spot history tracking
+    if price is not None and meta is not None:
+        try:
+            append_price("HG", meta["timestamp"], price)
+        except Exception as persist_err:
+            print(f"Failed to persist copper snapshot: {persist_err}")
+
+    return price, meta
 
 
 def fetch_platinum_price() -> Tuple[Optional[float], Optional[dict]]:
