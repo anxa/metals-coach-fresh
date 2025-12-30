@@ -798,8 +798,9 @@ def fetch_spot_and_futures(metal: str = "gold") -> Dict[str, Any]:
 def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float = None) -> Dict[str, Any]:
     """Fetch history and compute common indicators. Returns a dict.
 
-    Tries local CSV cache first (for Gold-API daily snapshots), then falls back to yfinance.
-    For gold/silver, uses futures tickers (GC=F, SI=F) as Yahoo spot tickers no longer work.
+    For gold/silver (XAU/XAG), prefers spot price history from Gold-API if we have
+    200+ days of data. This ensures indicators are calculated from actual spot prices,
+    matching the spot prices displayed in the UI. Falls back to futures if needed.
 
     Keys returned:
         - last_close: most recent closing price from history
@@ -838,27 +839,32 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
     # Get the working futures ticker for yfinance fallback
     yf_ticker = futures_ticker_map.get(yahoo_ticker, yahoo_ticker)
 
-    # Try local cache first
+    # Try local cache first (for XAU/XAG this now prefers spot data)
     df = None
+    data_source = "unknown"
     if symbol:
         local = load_history(symbol)
         if local is not None and not local.empty and len(local) >= 50:
             # Only use local cache if we have enough data for indicators
             df = local
+            # For XAU/XAG with 200+ days of spot data, load_history returns spot
+            data_source = "spot" if symbol in ["XAU", "XAG"] and len(local) >= 200 else "futures"
 
     # Fallback to Yahoo Finance (always use futures tickers for metals)
     if df is None or df.empty:
         df = fetch_history(yf_ticker, period=period)
+        data_source = "futures"
 
     # If still no data, try without local cache preference
     if df is None or df.empty:
         df = fetch_history(yahoo_ticker, period=period)
+        data_source = "futures"
 
     if df is None or df.empty:
         return {"error": "no history"}
 
     close = df["Close"].dropna()
-    out = {}
+    out = {"indicator_data_source": data_source}
 
     # Basic price
     out["last_close"] = float(close.iloc[-1])

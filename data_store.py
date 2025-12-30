@@ -162,17 +162,66 @@ def get_spot_high_and_days(symbol: str) -> Tuple[Optional[float], int]:
     return high, unique_dates
 
 
+def load_spot_history(symbol: str, min_days: int = 200) -> Optional[pd.DataFrame]:
+    """
+    Load spot price history from Gold-API snapshots.
+
+    This provides actual spot prices (not futures) for indicator calculations.
+    Only returns data if we have at least min_days of history.
+
+    Args:
+        symbol: e.g., 'XAU', 'XAG'
+        min_days: Minimum days of data required (default 200 for SMA200)
+
+    Returns:
+        DataFrame with "Close" column and DatetimeIndex, or None if insufficient data
+    """
+    p = csv_path(symbol)
+    if not p.exists():
+        return None
+
+    df = pd.read_csv(p, parse_dates=["timestamp"])
+    if df.empty:
+        return None
+
+    # Get unique trading days
+    df["date"] = df["timestamp"].dt.date
+    unique_days = df["date"].nunique()
+
+    if unique_days < min_days:
+        return None
+
+    # Deduplicate to one price per day (use last price of the day)
+    df = df.sort_values("timestamp")
+    df_daily = df.groupby("date").last().reset_index()
+    df_daily["date"] = pd.to_datetime(df_daily["date"])
+    df_daily = df_daily.set_index("date")
+
+    # Normalize column name for compatibility
+    df_daily = df_daily.rename(columns={"close": "Close"})
+
+    return df_daily[["Close"]]
+
+
 def load_history(symbol: str) -> pd.DataFrame:
     """
     Load local CSV history for a symbol.
 
-    Prefers full history file (from yfinance bulk download) if available,
-    falls back to daily snapshots file.
+    For gold (XAU) and silver (XAG), prefers spot price history from Gold-API
+    if we have sufficient data (200+ days). Otherwise falls back to futures.
+
+    For other metals, uses yfinance futures data.
 
     Returns:
         DataFrame with "Close" column, or None if no file exists.
     """
-    # Try full history first (yfinance format: Date index, Close column)
+    # For gold and silver, prefer spot history if we have enough data
+    if symbol.upper() in ["XAU", "XAG"]:
+        spot_df = load_spot_history(symbol, min_days=200)
+        if spot_df is not None:
+            return spot_df
+
+    # Fall back to full history file (yfinance futures format)
     full_path = full_history_path(symbol)
     if full_path.exists():
         df = pd.read_csv(full_path, parse_dates=["Date"]).set_index("Date")

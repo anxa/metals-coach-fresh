@@ -27,6 +27,10 @@ data/*.csv
 # And include prediction log (updated by Streamlit app via GitHub API)
 !data/prediction_log.csv
 
+# And include spot price history (backfilled from Gold-API for indicator calculations)
+!data/xau_history.csv
+!data/xag_history.csv
+
 # IDE
 .vscode/
 .idea/
