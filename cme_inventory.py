@@ -395,6 +395,68 @@ def get_all_metals_summary() -> List[Dict]:
     return summaries
 
 
+def get_inventory_history_table(days: int = 10) -> pd.DataFrame:
+    """
+    Get inventory history for all metals as a table for display.
+
+    Returns a DataFrame with dates as rows and metals as columns,
+    showing total inventory with day-over-day % change in brackets.
+
+    Args:
+        days: Number of days to include (default 10)
+
+    Returns:
+        DataFrame formatted for display with dates descending.
+    """
+    metals = ["gold", "silver", "copper", "platinum", "palladium"]
+    all_data = {}
+
+    for metal in metals:
+        totals = get_grand_totals(metal)
+        if totals.empty:
+            continue
+
+        # Get last N days of data
+        totals = totals.sort_values("date", ascending=False).head(days)
+
+        # Calculate day-over-day % change
+        totals = totals.sort_values("date", ascending=True)
+        totals["pct_change"] = totals["total"].pct_change() * 100
+
+        # Format as "value (change%)"
+        formatted = []
+        for _, row in totals.iterrows():
+            total = row["total"]
+            pct = row["pct_change"]
+
+            if pd.isna(total):
+                formatted.append("N/A")
+            elif pd.isna(pct):
+                # First row has no previous day
+                formatted.append(f"{total:,.0f}")
+            else:
+                sign = "+" if pct >= 0 else ""
+                formatted.append(f"{total:,.0f} ({sign}{pct:.2f}%)")
+
+        # Store with date index
+        totals = totals.sort_values("date", ascending=False)
+        dates = totals["date"].dt.strftime("%Y-%m-%d").tolist()
+        formatted.reverse()  # Match descending date order
+
+        all_data[metal.capitalize()] = dict(zip(dates, formatted))
+
+    if not all_data:
+        return pd.DataFrame()
+
+    # Build DataFrame from all metals
+    df = pd.DataFrame(all_data)
+
+    # Sort index (dates) descending
+    df = df.sort_index(ascending=False)
+
+    return df
+
+
 if __name__ == "__main__":
     # Test functions
     print("=== CME Inventory Module Test ===\n")

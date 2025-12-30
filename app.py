@@ -38,7 +38,7 @@ from prediction_tracker import (
 )
 from cme_inventory import (
     get_latest_inventory, get_inventory_state, get_inventory_signal,
-    get_inventory_trend, get_all_metals_summary
+    get_inventory_trend, get_all_metals_summary, get_inventory_history_table
 )
 from pgm_ratio import analyze_ptpd_ratio, get_ratio_signal_text
 from price_inventory_pressure import get_current_pressure, get_pressure_table_display
@@ -2161,6 +2161,64 @@ def render_technical_tab(ind, cot, term, metal_name):
         price_chart = create_price_chart(chart_df, metal_name, height=350)
         if price_chart:
             st.plotly_chart(price_chart, use_container_width=True, config={'displayModeBar': False})
+
+# === COMEX INVENTORY HISTORY TABLE ===
+st.markdown("#### 📦 COMEX Warehouse Inventory (Last 10 Days)")
+
+inventory_table = get_inventory_history_table(days=10)
+if not inventory_table.empty:
+    # Style the table
+    st.markdown("""
+<style>
+.inventory-table {
+    background: rgba(30, 37, 48, 0.6);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+}
+.inventory-table table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.inventory-table th {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 10px;
+    text-align: right;
+    font-weight: 600;
+    color: #e0e0e0;
+}
+.inventory-table th:first-child {
+    text-align: left;
+}
+.inventory-table td {
+    padding: 8px 10px;
+    text-align: right;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 0.85rem;
+}
+.inventory-table td:first-child {
+    text-align: left;
+    color: #888;
+}
+.inventory-table tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+</style>
+""", unsafe_allow_html=True)
+
+    # Rename index for display
+    inventory_table.index.name = "Date"
+
+    st.dataframe(
+        inventory_table,
+        use_container_width=True,
+        height=400
+    )
+    st.caption("Values show total inventory with day-over-day % change in brackets. Units: Gold/Silver in troy oz, Copper in lbs, Platinum/Palladium in troy oz.")
+else:
+    st.info("COMEX inventory data not yet available. Data is collected daily at 10:30 PM ET.")
+
+st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 
 # === GOLD ACCORDION ===
 gold_header = f"🥇 GOLD — {format_price(gold_price)} — {gold_emoji} {gold_verdict_text}"
