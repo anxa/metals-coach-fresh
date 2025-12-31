@@ -798,9 +798,11 @@ def fetch_spot_and_futures(metal: str = "gold") -> Dict[str, Any]:
 def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float = None) -> Dict[str, Any]:
     """Fetch history and compute common indicators. Returns a dict.
 
-    For gold/silver (XAU/XAG), prefers spot price history from Gold-API if we have
-    200+ days of data. This ensures indicators are calculated from actual spot prices,
-    matching the spot prices displayed in the UI. Falls back to futures if needed.
+    For gold/silver (XAU/XAG), uses a hybrid approach:
+    - Spot price history from Gold-API for price-based indicators (SMA, EMA, RSI, regime)
+    - Futures volume data from yfinance for participation analysis (OBV, volume ratio)
+
+    This ensures indicators match spot prices while maintaining volume-based participation signals.
 
     Keys returned:
         - last_close: most recent closing price from history
@@ -842,13 +844,18 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
     # Try local cache first (for XAU/XAG this now prefers spot data)
     df = None
     data_source = "unknown"
+    using_spot_prices = False
     if symbol:
         local = load_history(symbol)
         if local is not None and not local.empty and len(local) >= 50:
             # Only use local cache if we have enough data for indicators
             df = local
             # For XAU/XAG with 200+ days of spot data, load_history returns spot
-            data_source = "spot" if symbol in ["XAU", "XAG"] and len(local) >= 200 else "futures"
+            if symbol in ["XAU", "XAG"] and len(local) >= 200:
+                data_source = "spot"
+                using_spot_prices = True
+            else:
+                data_source = "futures"
 
     # Fallback to Yahoo Finance (always use futures tickers for metals)
     if df is None or df.empty:
@@ -862,6 +869,18 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
 
     if df is None or df.empty:
         return {"error": "no history"}
+
+    # HYBRID APPROACH: If using spot prices (no volume), fetch futures for volume data
+    futures_df = None
+    if using_spot_prices and symbol in ["XAU", "XAG"]:
+        try:
+            futures_df = fetch_history(yf_ticker, period=period)
+            if futures_df is not None and not futures_df.empty:
+                # Align futures data with spot data dates for volume analysis
+                # We'll use futures volume but keep spot prices for indicators
+                pass
+        except Exception:
+            futures_df = None
 
     close = df["Close"].dropna()
     out = {"indicator_data_source": data_source}
@@ -918,11 +937,21 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
     out["trend"] = classify_trend(close, out["sma20"], out["sma50"], out["sma200"])
 
     # === MOMENTUM INDICATORS ===
-    volume = df["Volume"] if "Volume" in df.columns else None
+    # HYBRID APPROACH: For spot prices, use futures volume for participation analysis
+    # This keeps price-based indicators on spot, but volume-based indicators on futures
+    if using_spot_prices and futures_df is not None and not futures_df.empty:
+        volume = futures_df["Volume"] if "Volume" in futures_df.columns else None
+        # Use futures close for OBV calculation (volume is tied to futures trading)
+        volume_close = futures_df["Close"].dropna() if "Close" in futures_df.columns else close
+        out["volume_data_source"] = "futures"
+    else:
+        volume = df["Volume"] if "Volume" in df.columns else None
+        volume_close = close
+        out["volume_data_source"] = data_source
 
     # OBV (On-Balance Volume)
     if volume is not None and not volume.empty:
-        obv_series = obv(close, volume)
+        obv_series = obv(volume_close, volume)
         out["obv"] = float(obv_series.iloc[-1])
         # OBV trend: compare current to 20-day SMA of OBV
         obv_sma_series = sma(obv_series, 20)
@@ -933,8 +962,8 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
             out["obv_sma20"] = None
             out["obv_trend"] = "unknown"
 
-        # OBV Momentum Analysis (divergence detection)
-        obv_momentum = analyze_obv_momentum(close, obv_series)
+        # OBV Momentum Analysis (divergence detection) - use futures price for OBV divergence
+        obv_momentum = analyze_obv_momentum(volume_close, obv_series)
         out["obv_momentum"] = obv_momentum
     else:
         out["obv"] = None
@@ -1011,16 +1040,16 @@ def compute_indicators(yahoo_ticker: str, period: str = "1y", spot_price: float 
     else:
         out["rsi_divergence"] = {"divergence": None, "type": None}
 
-    # Up/Down volume ratio
-    if volume is not None and not volume.empty and len(close) >= 11:
-        ud_vol = up_down_volume_ratio(close, volume, lookback=10)
+    # Up/Down volume ratio - use volume_close for consistency with OBV
+    if volume is not None and not volume.empty and len(volume_close) >= 11:
+        ud_vol = up_down_volume_ratio(volume_close, volume, lookback=10)
         out["up_down_volume"] = ud_vol
     else:
         out["up_down_volume"] = {"error": "insufficient data"}
 
-    # OBV trend direction (for participation analysis)
-    if volume is not None and not volume.empty and len(close) >= 20:
-        obv_series = obv(close, volume)
+    # OBV trend direction (for participation analysis) - use volume_close
+    if volume is not None and not volume.empty and len(volume_close) >= 20:
+        obv_series = obv(volume_close, volume)
         obv_sma_20 = sma(obv_series, 20)
 
         # OBV slope over 10 days
