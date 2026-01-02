@@ -17,12 +17,22 @@ Usage:
     signal = get_inventory_signal("gold", price_trend="rising", macro_state="supportive")
 """
 import pandas as pd
+import requests
+import io
+import os
 from pathlib import Path
 from typing import Dict, Optional, List, Literal
 from datetime import datetime, timedelta
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 INVENTORY_CSV = DATA_DIR / "cme_inventory.csv"
+
+# GitHub raw URL for fetching latest data on Streamlit Cloud
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/anxa/metals-coach-fresh/main/data/cme_inventory.csv"
+
+# Cache for GitHub data (simple in-memory cache with timestamp)
+_github_cache = {"data": None, "timestamp": None}
+CACHE_TTL_SECONDS = 300  # 5 minutes
 
 # Type definitions
 InventoryState = Literal["drawdown", "flat", "build"]
@@ -32,7 +42,40 @@ SignalStrength = Literal["strong_positive", "breakout_risk", "caution", "negativ
 
 
 def load_inventory() -> pd.DataFrame:
-    """Load inventory CSV, return empty DataFrame if not exists."""
+    """Load inventory CSV, return empty DataFrame if not exists.
+
+    On Streamlit Cloud, fetches from GitHub raw URL to get latest data
+    without requiring a redeploy. Uses a 5-minute cache to avoid
+    excessive API calls.
+    """
+    global _github_cache
+
+    # Check if running on Streamlit Cloud
+    is_streamlit_cloud = os.getenv("STREAMLIT_SHARING_MODE") or os.path.exists("/mount/src")
+
+    if is_streamlit_cloud:
+        # Check cache validity
+        now = datetime.now()
+        if (_github_cache["data"] is not None and
+            _github_cache["timestamp"] is not None and
+            (now - _github_cache["timestamp"]).total_seconds() < CACHE_TTL_SECONDS):
+            return _github_cache["data"].copy()
+
+        # Fetch from GitHub
+        try:
+            resp = requests.get(GITHUB_RAW_URL, timeout=10)
+            resp.raise_for_status()
+            df = pd.read_csv(io.StringIO(resp.text), parse_dates=["date"])
+            df = df.sort_values(["metal", "date", "warehouse"])
+
+            # Update cache
+            _github_cache["data"] = df
+            _github_cache["timestamp"] = now
+            return df.copy()
+        except Exception as e:
+            print(f"Failed to fetch from GitHub: {e}, falling back to local file")
+
+    # Local file fallback
     if not INVENTORY_CSV.exists():
         return pd.DataFrame()
 
