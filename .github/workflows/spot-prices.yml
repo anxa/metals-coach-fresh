@@ -2,9 +2,8 @@ name: Update Spot Prices
 
 on:
   schedule:
-    # Run daily at 10:00 PM ET (3:00 AM UTC next day)
-    # After market close, Gold-API will have final daily prices
-    - cron: '0 3 * * *'
+    # Run daily at 10:00 PM GMT (5:00 PM ET) - COMEX market close
+    - cron: '0 22 * * *'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:

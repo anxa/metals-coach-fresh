@@ -220,20 +220,6 @@ st.markdown("""
         display: none !important;
     }
 
-    /* ===== GLASSMORPHISM STICKY NAV ===== */
-    .sticky-nav {
-        position: sticky;
-        top: 0;
-        z-index: 999;
-        background: rgba(20, 25, 35, 0.85) !important;
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        padding: 10px 20px;
-        border-bottom: 1px solid var(--glass-border);
-        margin: -1rem -1rem 1rem -1rem;
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
-    }
-
     /* Metal selector header */
     .metal-selector-header {
         text-align: center;
@@ -1237,58 +1223,6 @@ Unlike gold/silver (monetary metals), copper price is driven by physical supply/
 📦 **Why it matters:** Low inventory = manufacturers competing for scarce supply = price rises
 """
 
-# === STICKY NAVIGATION BAR ===
-# Get quick verdict signals for nav bar
-def get_nav_signal(ind, cot, macro, term, metal_type="standard"):
-    """Get emoji for nav bar."""
-    if "error" in ind:
-        return "❓"
-    if metal_type == "copper":
-        verdict_data = get_copper_verdict(ind, cot, macro, term)
-    else:
-        verdict_data = get_quick_verdict(ind, cot, macro, term)
-    verdict = verdict_data.get("verdict", "NEUTRAL")
-    if "BULLISH" in verdict:
-        return "🟢"
-    elif "BEARISH" in verdict:
-        return "🔴"
-    return "🟡"
-
-gold_nav = get_nav_signal(gold_ind, gold_cot, macro_data, gold_term)
-silver_nav = get_nav_signal(silver_ind, silver_cot, macro_data, silver_term)
-copper_nav = get_nav_signal(copper_ind, copper_cot, copper_macro, copper_term, "copper")
-platinum_nav = get_nav_signal(platinum_ind, platinum_cot, macro_data, platinum_term)
-palladium_nav = get_nav_signal(palladium_ind, palladium_cot, macro_data, palladium_term)
-
-st.markdown(f"""
-<div class="sticky-nav">
-    <div style="display: flex; justify-content: center; align-items: center; gap: 24px; flex-wrap: wrap;">
-        <a href="#gold-section" style="text-decoration: none; font-size: 0.95rem; color: #fff; transition: color 0.2s;">
-            <strong>Gold</strong> {gold_nav}
-        </a>
-        <span style="color: #444;">|</span>
-        <a href="#silver-section" style="text-decoration: none; font-size: 0.95rem; color: #fff; transition: color 0.2s;">
-            <strong>Silver</strong> {silver_nav}
-        </a>
-        <span style="color: #444;">|</span>
-        <a href="#copper-section" style="text-decoration: none; font-size: 0.95rem; color: #fff; transition: color 0.2s;">
-            <strong>Copper</strong> {copper_nav}
-        </a>
-        <span style="color: #444;">|</span>
-        <a href="#platinum-section" style="text-decoration: none; font-size: 0.95rem; color: #fff; transition: color 0.2s;">
-            <strong>Platinum</strong> {platinum_nav}
-        </a>
-        <span style="color: #444;">|</span>
-        <a href="#palladium-section" style="text-decoration: none; font-size: 0.95rem; color: #fff; transition: color 0.2s;">
-            <strong>Palladium</strong> {palladium_nav}
-        </a>
-        <span style="color: #444; margin-left: 16px;">|</span>
-        <span style="font-size: 0.85rem; color: #888;">
-            Updated: {datetime.now().strftime("%H:%M")}
-        </span>
-    </div>
-</div>
-""", unsafe_allow_html=True)
 
 # Get pressure data for metal analysis
 try:
@@ -1319,6 +1253,9 @@ platinum_change = get_daily_change("XPT", platinum_price, platinum_ind)
 palladium_change = get_daily_change("XPD", palladium_price)
 
 # === METAL SUMMARY (Price + Change + Verdict) ===
+st.markdown("### 💰 At a Glance")
+st.caption("Live spot prices with daily change and signal verdict for each metal.")
+
 metals_summary = [
     ("GOLD", "🥇", gold_verdict_data, gold_price, "#FFD700", gold_change, ""),
     ("SILVER", "🥈", silver_verdict_data, silver_price, "#C0C0C0", silver_change, ""),
@@ -1353,6 +1290,8 @@ for i, (name, emoji, verdict, price, color, change, unit) in enumerate(metals_su
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 
 # === MARKET NEWS (Compact Design) ===
+st.markdown("### 📰 Latest News")
+st.caption("Recent headlines from across the precious metals market.")
 @st.cache_data(ttl=900)  # Cache for 15 minutes
 def get_cached_news():
     return fetch_all_news(limit_per_metal=4)
@@ -1385,7 +1324,7 @@ if news_items:
 
         cards_html += f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer" style="text-decoration: none;"><div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 12px; border-top: 2px solid {border_color}; height: 100%; min-height: 90px; display: flex; flex-direction: column; justify-content: space-between;"><div><span style="background: {border_color}20; color: {border_color}; font-size: 0.65rem; padding: 2px 6px; border-radius: 3px; font-weight: 600;">{metal_name}</span><div style="color: #d0d0d0; font-size: 0.8rem; line-height: 1.35; margin-top: 8px;">{display_title}</div></div><div style="color: #666; font-size: 0.7rem; margin-top: 8px;">{item["date_str"]}</div></div></a>'
 
-    st.markdown(f'<div style="background: rgba(30, 37, 48, 0.5); backdrop-filter: blur(15px); border-radius: 12px; padding: 16px; margin: 12px 0; border: 1px solid rgba(255, 255, 255, 0.08);"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;"><span style="color: #888; font-size: 0.85rem; font-weight: 500;">📰 Latest News</span><a href="https://www.metalsdaily.com/news/" target="_blank" rel="noopener noreferrer" style="color: #666; font-size: 0.75rem; text-decoration: none;">View all →</a></div><div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">{cards_html}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px;">{cards_html}</div><div style="text-align: right; margin-top: 10px;"><a href="https://www.metalsdaily.com/news/" target="_blank" rel="noopener noreferrer" style="color: #666; font-size: 0.75rem; text-decoration: none;">View all →</a></div>', unsafe_allow_html=True)
 
 # === MACRO DRIVERS (Moved higher for context) ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
@@ -1852,11 +1791,6 @@ with st.expander("📊 Prediction Accuracy Dashboard", expanded=False):
     except Exception as e:
         st.error(f"Error loading accuracy data: {str(e)}")
 
-# === METAL ANALYSIS ACCORDIONS ===
-st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-st.markdown("### 📊 Metal Analysis")
-st.markdown('<p class="metal-selector-header">Expand any metal for detailed technical analysis</p>', unsafe_allow_html=True)
-
 
 def render_verdict_reasons(verdict_data):
     """Render the verdict reasons in a 2-column layout for better readability."""
@@ -2285,13 +2219,22 @@ try:
 except Exception as e:
     st.warning(f"LBMA vault data error: {str(e)[:100]}")
 
-# === GOLD ACCORDION ===
-st.markdown('<div id="gold-section"></div>', unsafe_allow_html=True)
-gold_header = f"🥇 GOLD — {format_price(gold_price)} — {gold_emoji} {gold_verdict_text}"
-if gold_change is not None:
-    gold_header += f" — {gold_change:+.1f}% today"
+# === DETAILED ANALYSIS (Tabbed Interface) ===
+st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+st.markdown("### 📊 Detailed Analysis")
+st.markdown('<p style="color: #888; font-size: 0.85rem; margin-bottom: 16px;">Select a metal tab to view technical indicators, COT positioning, and inventory data.</p>', unsafe_allow_html=True)
 
-with st.expander(gold_header, expanded=False):
+# Create tabs for each metal with verdict emoji
+gold_tab, silver_tab, copper_tab, platinum_tab, palladium_tab = st.tabs([
+    f"🥇 Gold {gold_emoji}",
+    f"🥈 Silver {silver_emoji}",
+    f"🔶 Copper {copper_emoji}",
+    f"⚪ Platinum {platinum_emoji}",
+    f"⬜ Palladium {palladium_emoji}"
+])
+
+# === GOLD TAB ===
+with gold_tab:
     render_verdict_reasons(gold_verdict_data)
     render_technical_tab(gold_ind, gold_cot, gold_term, "Gold")
 
@@ -2380,13 +2323,8 @@ with st.expander(gold_header, expanded=False):
             else:
                 st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 
-# === SILVER ACCORDION ===
-st.markdown('<div id="silver-section"></div>', unsafe_allow_html=True)
-silver_header = f"🥈 SILVER — {format_price(silver_price)} — {silver_emoji} {silver_verdict_text}"
-if silver_change is not None:
-    silver_header += f" — {silver_change:+.1f}% today"
-
-with st.expander(silver_header, expanded=False):
+# === SILVER TAB ===
+with silver_tab:
     render_verdict_reasons(silver_verdict_data)
     render_technical_tab(silver_ind, silver_cot, silver_term, "Silver")
 
@@ -2475,13 +2413,8 @@ with st.expander(silver_header, expanded=False):
             else:
                 st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 
-# === COPPER ACCORDION ===
-st.markdown('<div id="copper-section"></div>', unsafe_allow_html=True)
-copper_header = f"🔶 COPPER — {format_price(copper_price)}/lb — {copper_emoji} {copper_verdict_text}"
-if copper_change is not None:
-    copper_header += f" — {copper_change:+.1f}% today"
-
-with st.expander(copper_header, expanded=False):
+# === COPPER TAB ===
+with copper_tab:
     render_verdict_reasons(copper_verdict_data)
     render_technical_tab(copper_ind, copper_cot, copper_term, "Copper")
 
@@ -2636,13 +2569,8 @@ with st.expander(copper_header, expanded=False):
             else:
                 st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 
-# === PLATINUM ACCORDION ===
-st.markdown('<div id="platinum-section"></div>', unsafe_allow_html=True)
-platinum_header = f"⚪ PLATINUM — {format_price(platinum_price)} — {platinum_emoji} {platinum_verdict_text}"
-if platinum_change is not None:
-    platinum_header += f" — {platinum_change:+.1f}% today"
-
-with st.expander(platinum_header, expanded=False):
+# === PLATINUM TAB ===
+with platinum_tab:
     render_verdict_reasons(platinum_verdict_data)
     render_technical_tab(platinum_ind, platinum_cot, platinum_term, "Platinum")
 
@@ -2793,13 +2721,8 @@ with st.expander(platinum_header, expanded=False):
             else:
                 st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 
-# === PALLADIUM ACCORDION ===
-st.markdown('<div id="palladium-section"></div>', unsafe_allow_html=True)
-palladium_header = f"⬜ PALLADIUM — {format_price(palladium_price)} — {palladium_emoji} {palladium_verdict_text}"
-if palladium_change is not None:
-    palladium_header += f" — {palladium_change:+.1f}% today"
-
-with st.expander(palladium_header, expanded=False):
+# === PALLADIUM TAB ===
+with palladium_tab:
     render_verdict_reasons(palladium_verdict_data)
     render_technical_tab(palladium_ind, palladium_cot, palladium_term, "Palladium")
 
