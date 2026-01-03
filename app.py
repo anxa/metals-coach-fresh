@@ -2331,9 +2331,9 @@ try:
                 st.plotly_chart(fig, use_container_width=True)
                 st.caption("Source: London Bullion Market Association (LBMA). Data represents end-of-month holdings in London vaults.")
     else:
-        st.info("LBMA vault data temporarily unavailable.")
+        st.warning("LBMA vault data temporarily unavailable. API may be blocked.")
 except Exception as e:
-    st.info("LBMA vault data temporarily unavailable.")
+    st.warning(f"LBMA vault data error: {str(e)[:100]}")
 
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 

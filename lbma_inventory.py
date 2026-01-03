@@ -36,6 +36,9 @@ CACHE_TTL_SECONDS = 3600  # 1 hour
 DATA_DIR = Path(__file__).resolve().parent / "data"
 LBMA_CSV = DATA_DIR / "lbma_inventory.csv"
 
+# GitHub raw URL for fallback on Streamlit Cloud
+GITHUB_LBMA_CSV_URL = "https://raw.githubusercontent.com/anxa/metals-coach-fresh/main/data/lbma_inventory.csv"
+
 
 def fetch_lbma_data() -> Optional[pd.DataFrame]:
     """
@@ -95,15 +98,36 @@ def fetch_lbma_data() -> Optional[pd.DataFrame]:
         return df.copy()
 
     except Exception as e:
-        print(f"Error fetching LBMA data: {e}")
+        print(f"Error fetching LBMA API: {e}")
 
     # Try loading from local CSV fallback
     if LBMA_CSV.exists():
         try:
             df = pd.read_csv(LBMA_CSV, parse_dates=["date"])
+            # Recalculate changes if missing
+            if "gold_change" not in df.columns:
+                df["gold_change"] = df["gold_tonnes"].diff()
+                df["gold_change_pct"] = df["gold_tonnes"].pct_change() * 100
+                df["silver_change"] = df["silver_tonnes"].diff()
+                df["silver_change_pct"] = df["silver_tonnes"].pct_change() * 100
             return df
-        except Exception:
-            pass
+        except Exception as e2:
+            print(f"Error loading local CSV: {e2}")
+
+    # Try loading from GitHub as last resort (for Streamlit Cloud)
+    try:
+        resp = requests.get(GITHUB_LBMA_CSV_URL, timeout=10)
+        resp.raise_for_status()
+        df = pd.read_csv(io.StringIO(resp.text), parse_dates=["date"])
+        # Recalculate changes if missing
+        if "gold_change" not in df.columns:
+            df["gold_change"] = df["gold_tonnes"].diff()
+            df["gold_change_pct"] = df["gold_tonnes"].pct_change() * 100
+            df["silver_change"] = df["silver_tonnes"].diff()
+            df["silver_change_pct"] = df["silver_tonnes"].pct_change() * 100
+        return df
+    except Exception as e3:
+        print(f"Error fetching from GitHub: {e3}")
 
     return None
 
