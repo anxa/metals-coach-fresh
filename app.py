@@ -418,27 +418,32 @@ st.markdown("""
         border-radius: 50%;
         display: inline-block;
         margin-right: 8px;
-        animation: pulse 2s infinite;
+        /* Static glow - animation removed to reduce visual fatigue */
     }
 
     .signal-dot-bullish {
         background: var(--bullish);
-        box-shadow: 0 0 10px var(--bullish), 0 0 20px rgba(0, 200, 83, 0.5);
+        box-shadow: 0 0 8px var(--bullish), 0 0 16px rgba(0, 200, 83, 0.4);
     }
 
     .signal-dot-bearish {
         background: var(--bearish);
-        box-shadow: 0 0 10px var(--bearish), 0 0 20px rgba(255, 82, 82, 0.5);
+        box-shadow: 0 0 8px var(--bearish), 0 0 16px rgba(255, 82, 82, 0.4);
     }
 
     .signal-dot-neutral {
         background: var(--neutral);
-        box-shadow: 0 0 10px var(--neutral), 0 0 20px rgba(255, 193, 7, 0.5);
+        box-shadow: 0 0 8px var(--neutral), 0 0 16px rgba(255, 193, 7, 0.4);
+    }
+
+    /* Only animate critical alerts (extreme readings) */
+    .signal-dot-critical {
+        animation: pulse 2s infinite;
     }
 
     @keyframes pulse {
         0%, 100% { opacity: 1; }
-        50% { opacity: 0.7; }
+        50% { opacity: 0.6; }
     }
 
     /* Data row styling */
@@ -732,6 +737,49 @@ def signal_emoji(signal):
     elif signal in ["extreme_long", "extreme_short"]:
         return "🟡"
     return "⚪"
+
+
+# === VERDICT AND DAILY CHANGE FUNCTIONS ===
+def get_verdict_info(ind, cot, macro, term, metal_type="standard"):
+    """Get verdict info for accordion header and detailed signals."""
+    if "error" in ind:
+        return "❓", "UNKNOWN", "#888", None
+
+    if metal_type == "copper":
+        verdict_data = get_copper_verdict(ind, cot, macro, term)
+    else:
+        verdict_data = get_quick_verdict(ind, cot, macro, term)
+
+    verdict = verdict_data.get("verdict", "NEUTRAL")
+
+    if "BULLISH" in verdict:
+        return "🟢", verdict, "#00c853", verdict_data
+    elif "BEARISH" in verdict:
+        return "🔴", verdict, "#ff5252", verdict_data
+    else:
+        return "🟡", verdict, "#ffc107", verdict_data
+
+
+def get_daily_change(symbol: str, spot_price: float = None, ind: dict = None):
+    """
+    Get daily price change percentage using spot-to-spot comparison.
+    """
+    if spot_price is None:
+        return None
+
+    # Try spot-to-spot comparison first (most accurate)
+    yesterday_close = get_yesterday_spot_close(symbol)
+    if yesterday_close is not None:
+        return ((spot_price / yesterday_close) - 1) * 100
+
+    # Fallback to futures data for metals without spot history (e.g., platinum)
+    if ind is not None and "error" not in ind:
+        hist = ind.get("history")
+        if hist is not None and len(hist) >= 2:
+            yesterday_futures = hist["Close"].iloc[-2]
+            return ((spot_price / yesterday_futures) - 1) * 100
+
+    return None
 
 
 # === PLOTLY CHART HELPERS ===
@@ -1215,25 +1263,25 @@ palladium_nav = get_nav_signal(palladium_ind, palladium_cot, macro_data, palladi
 st.markdown(f"""
 <div class="sticky-nav">
     <div style="display: flex; justify-content: center; align-items: center; gap: 24px; flex-wrap: wrap;">
-        <span style="font-size: 0.95rem; color: #fff;">
+        <a href="#gold-section" style="text-decoration: none; font-size: 0.95rem; color: #fff; transition: color 0.2s;">
             <strong>Gold</strong> {gold_nav}
-        </span>
+        </a>
         <span style="color: #444;">|</span>
-        <span style="font-size: 0.95rem; color: #fff;">
+        <a href="#silver-section" style="text-decoration: none; font-size: 0.95rem; color: #fff; transition: color 0.2s;">
             <strong>Silver</strong> {silver_nav}
-        </span>
+        </a>
         <span style="color: #444;">|</span>
-        <span style="font-size: 0.95rem; color: #fff;">
+        <a href="#copper-section" style="text-decoration: none; font-size: 0.95rem; color: #fff; transition: color 0.2s;">
             <strong>Copper</strong> {copper_nav}
-        </span>
+        </a>
         <span style="color: #444;">|</span>
-        <span style="font-size: 0.95rem; color: #fff;">
+        <a href="#platinum-section" style="text-decoration: none; font-size: 0.95rem; color: #fff; transition: color 0.2s;">
             <strong>Platinum</strong> {platinum_nav}
-        </span>
+        </a>
         <span style="color: #444;">|</span>
-        <span style="font-size: 0.95rem; color: #fff;">
+        <a href="#palladium-section" style="text-decoration: none; font-size: 0.95rem; color: #fff; transition: color 0.2s;">
             <strong>Palladium</strong> {palladium_nav}
-        </span>
+        </a>
         <span style="color: #444; margin-left: 16px;">|</span>
         <span style="font-size: 0.85rem; color: #888;">
             Updated: {datetime.now().strftime("%H:%M")}
@@ -1242,8 +1290,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# === WHAT CHANGED TODAY ===
-# Get pressure data for change detection
+# Get pressure data for metal analysis
 try:
     gold_pressure_data = get_current_pressure("gold")
     silver_pressure_data = get_current_pressure("silver")
@@ -1257,19 +1304,55 @@ except Exception:
     platinum_pressure_data = {"error": "unavailable"}
     palladium_pressure_data = {"error": "unavailable"}
 
-# Detect changes across all metals (pass spot prices for accurate daily change %)
-daily_changes = get_all_changes(
-    gold_ind, silver_ind, copper_ind,
-    platinum_ind, palladium_ind,
-    copper_pressure_data, platinum_pressure_data, palladium_pressure_data,
-    gold_price, silver_price, copper_price, platinum_price, palladium_price
-)
+# === COMPUTE VERDICTS AND CHANGES (needed for metal summary) ===
+gold_emoji, gold_verdict_text, gold_color, gold_verdict_data = get_verdict_info(gold_ind, gold_cot, macro_data, gold_term)
+silver_emoji, silver_verdict_text, silver_color, silver_verdict_data = get_verdict_info(silver_ind, silver_cot, macro_data, silver_term)
+copper_emoji, copper_verdict_text, copper_color, copper_verdict_data = get_verdict_info(copper_ind, copper_cot, copper_macro, copper_term, "copper")
+platinum_emoji, platinum_verdict_text, platinum_color, platinum_verdict_data = get_verdict_info(platinum_ind, platinum_cot, macro_data, platinum_term)
+palladium_emoji, palladium_verdict_text, palladium_color, palladium_verdict_data = get_verdict_info(palladium_ind, palladium_cot, macro_data, palladium_term)
 
-# Display the changes section
-changes_html = format_changes_html(daily_changes)
-st.markdown(changes_html, unsafe_allow_html=True)
+# Get daily changes - use spot history, with futures fallback for platinum
+gold_change = get_daily_change("XAU", gold_price)
+silver_change = get_daily_change("XAG", silver_price)
+copper_change = get_daily_change("HG", copper_price)
+platinum_change = get_daily_change("XPT", platinum_price, platinum_ind)
+palladium_change = get_daily_change("XPD", palladium_price)
 
-# === MARKET NEWS ===
+# === METAL SUMMARY (Price + Change + Verdict) ===
+metals_summary = [
+    ("GOLD", "🥇", gold_verdict_data, gold_price, "#FFD700", gold_change, ""),
+    ("SILVER", "🥈", silver_verdict_data, silver_price, "#C0C0C0", silver_change, ""),
+    ("COPPER", "🔶", copper_verdict_data, copper_price, "#B87333", copper_change, "/lb"),
+    ("PLATINUM", "⚪", platinum_verdict_data, platinum_price, "#E5E4E2", platinum_change, ""),
+    ("PALLADIUM", "⬜", palladium_verdict_data, palladium_price, "#CED0DD", palladium_change, ""),
+]
+
+summary_cols = st.columns(5)
+for i, (name, emoji, verdict, price, color, change, unit) in enumerate(metals_summary):
+    with summary_cols[i]:
+        verdict_text = verdict.get("verdict", "NEUTRAL") if verdict else "N/A"
+        net_score = verdict.get("net_score", 0) if verdict else 0
+
+        # Verdict background color
+        if "BULLISH" in str(verdict_text):
+            verdict_bg = "#00c853"
+        elif "BEARISH" in str(verdict_text):
+            verdict_bg = "#ff5252"
+        else:
+            verdict_bg = "#ffc107"
+
+        # Format daily change
+        change_str = f"{change:+.1f}%" if change is not None else "—"
+        change_color = "#00c853" if change and change > 0 else "#ff5252" if change and change < 0 else "#888"
+
+        # Format price
+        price_str = format_price(price) if price else "—"
+
+        st.markdown(f'<div style="background: rgba(30, 37, 48, 0.6); backdrop-filter: blur(15px); border-radius: 12px; padding: 16px; border-left: 3px solid {color}; border: 1px solid rgba(255,255,255,0.08); min-height: 140px;"><div style="color: {color}; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">{emoji} {name}</div><div style="color: #fff; font-size: 1.5rem; font-weight: 700;">{price_str}<span style="font-size: 0.7rem; color: #888;">{unit}</span></div><div style="color: {change_color}; font-size: 0.9rem; font-weight: 500; margin: 6px 0;">{change_str} today</div><div style="display: inline-block; background: {verdict_bg}; color: #000; font-size: 0.7rem; font-weight: 600; padding: 3px 8px; border-radius: 4px; margin-top: 4px;">{verdict_text}</div><div style="color: #888; font-size: 0.7rem; margin-top: 4px;">Score: {net_score:+d}</div></div>', unsafe_allow_html=True)
+
+st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+
+# === MARKET NEWS (Compact Design) ===
 @st.cache_data(ttl=900)  # Cache for 15 minutes
 def get_cached_news():
     return fetch_all_news(limit_per_metal=4)
@@ -1280,157 +1363,94 @@ except Exception:
     news_items = []
 
 if news_items:
-    # Build news items HTML with escaped titles
     import html as html_lib
-    news_items_html = ""
-    for item in news_items[:10]:
-        border_color = '#FFD700' if item['metal'] == 'gold' else '#C0C0C0' if item['metal'] == 'silver' else '#E5E4E2'
+
+    metal_colors = {
+        'gold': '#FFD700',
+        'silver': '#C0C0C0',
+        'copper': '#B87333',
+        'platinum': '#E5E4E2',
+        'palladium': '#CED0DD'
+    }
+
+    # Build grid cards - 6 items in a 3x2 grid
+    cards_html = ""
+    for item in news_items[:6]:
+        border_color = metal_colors.get(item['metal'], '#888')
         safe_title = html_lib.escape(item['title'])
         safe_url = html_lib.escape(item['url'])
-        news_items_html += f'''<a href="{safe_url}" target="_blank" rel="noopener noreferrer" class="news-item" style="text-decoration: none; display: block; margin-bottom: 8px;">
-<div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; border-left: 3px solid {border_color};">
-<span style="margin-right: 10px;">{item['emoji']}</span>
-<span style="color: #e0e0e0; flex: 1; font-size: 0.9rem;">{safe_title}</span>
-<span style="color: #666; font-size: 0.75rem; margin-left: 10px; white-space: nowrap;">{item['date_str']}</span>
-</div></a>'''
+        metal_name = item['metal'].upper()
+        # Truncate titles for card format
+        display_title = safe_title[:65] + "..." if len(safe_title) > 65 else safe_title
 
-    st.markdown(f"""
-<div style="background: rgba(30, 37, 48, 0.6); backdrop-filter: blur(20px); border-radius: 16px; padding: 20px; margin: 16px 0; border: 1px solid rgba(255, 255, 255, 0.1);">
-<div style="color: #888; font-size: 0.9rem; margin-bottom: 12px;">📰 Precious Metals News</div>
-{news_items_html}
-<div style="text-align: right; margin-top: 12px;">
-<a href="https://www.metalsdaily.com/news/" target="_blank" rel="noopener noreferrer" style="color: #888; font-size: 0.8rem; text-decoration: none;">More news →</a>
-</div>
-</div>
-""", unsafe_allow_html=True)
+        cards_html += f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer" style="text-decoration: none;"><div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 12px; border-top: 2px solid {border_color}; height: 100%; min-height: 90px; display: flex; flex-direction: column; justify-content: space-between;"><div><span style="background: {border_color}20; color: {border_color}; font-size: 0.65rem; padding: 2px 6px; border-radius: 3px; font-weight: 600;">{metal_name}</span><div style="color: #d0d0d0; font-size: 0.8rem; line-height: 1.35; margin-top: 8px;">{display_title}</div></div><div style="color: #666; font-size: 0.7rem; margin-top: 8px;">{item["date_str"]}</div></div></a>'
 
-# === HERO SECTION - LIVE PRICES ===
+    st.markdown(f'<div style="background: rgba(30, 37, 48, 0.5); backdrop-filter: blur(15px); border-radius: 12px; padding: 16px; margin: 12px 0; border: 1px solid rgba(255, 255, 255, 0.08);"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;"><span style="color: #888; font-size: 0.85rem; font-weight: 500;">📰 Latest News</span><a href="https://www.metalsdaily.com/news/" target="_blank" rel="noopener noreferrer" style="color: #666; font-size: 0.75rem; text-decoration: none;">View all →</a></div><div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">{cards_html}</div></div>', unsafe_allow_html=True)
+
+# === MACRO DRIVERS (Moved higher for context) ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+st.markdown("### 🌍 Macro Environment")
 
-hero_col1, hero_col2, hero_col3 = st.columns(3)
+with st.expander("ℹ️ Understanding Macro Drivers", expanded=False):
+    st.markdown(MACRO_GUIDE)
 
-with hero_col1:
-    if gold_price:
-        # Use spot-based high with dynamic label showing days of data
-        gold_high, gold_days = get_spot_high_and_days("XAU")
-        if gold_high and gold_days > 0:
-            pct_from_high = ((gold_price / gold_high) - 1) * 100
-            high_label = f"{gold_days}d high"
-        else:
-            pct_from_high = gold_ind.get('pct_from_52w_high', 0) if "error" not in gold_ind else 0
-            high_label = "52w high"
-        trend = gold_ind.get('trend', 'unknown') if "error" not in gold_ind else 'unknown'
+if "error" not in macro_data:
+    macro_bias = macro_data.get("macro_bias", "neutral")
+    indicators = macro_data.get("indicators", {})
 
-        st.markdown(f"""
-        <div class="metric-card metric-card-gold">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <span style="color: #888; font-size: 0.9rem;">GOLD (XAU/USD)</span>
-                    <h2 class="price-large price-gold">{format_price(gold_price)}</h2>
-                    <span style="color: {'#00c853' if pct_from_high >= 0 else '#ff5252'}; font-size: 0.95rem;">
-                        {pct_from_high:+.2f}% from {high_label}
-                    </span>
-                </div>
-                <div style="text-align: right;">
-                    {signal_badge(trend.upper(), trend)}
-                    <p style="color: #666; font-size: 0.8rem; margin-top: 8px;">Source: Gold-API</p>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # Sparkline for 20-day trend
-        if "error" not in gold_ind:
-            gold_hist = gold_ind.get("history")
-            if gold_hist is not None and len(gold_hist) >= 20:
-                sparkline_data = gold_hist['Close'].tail(20)
-                sparkline = create_sparkline(sparkline_data, "#FFD700", height=40, width=None)
-                if sparkline:
-                    st.plotly_chart(sparkline, use_container_width=True, config={'displayModeBar': False})
+    # Overall bias banner
+    if macro_bias == "bullish":
+        st.success(f"**Overall Macro Bias:** 🟢 BULLISH FOR GOLD")
+    elif macro_bias == "bearish":
+        st.error(f"**Overall Macro Bias:** 🔴 BEARISH FOR GOLD")
     else:
-        st.error("Gold price unavailable")
+        st.warning(f"**Overall Macro Bias:** ⚪ NEUTRAL")
 
-with hero_col2:
-    if silver_price:
-        # Use spot-based high with dynamic label showing days of data
-        silver_high, silver_days = get_spot_high_and_days("XAG")
-        if silver_high and silver_days > 0:
-            pct_from_high = ((silver_price / silver_high) - 1) * 100
-            high_label = f"{silver_days}d high"
-        else:
-            pct_from_high = silver_ind.get('pct_from_52w_high', 0) if "error" not in silver_ind else 0
-            high_label = "52w high"
-        trend = silver_ind.get('trend', 'unknown') if "error" not in silver_ind else 'unknown'
+    m1, m2, m3, m4, m5 = st.columns(5)
 
-        st.markdown(f"""
-        <div class="metric-card metric-card-silver">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <span style="color: #888; font-size: 0.9rem;">SILVER (XAG/USD)</span>
-                    <h2 class="price-large price-silver">{format_price(silver_price)}</h2>
-                    <span style="color: {'#00c853' if pct_from_high >= 0 else '#ff5252'}; font-size: 0.95rem;">
-                        {pct_from_high:+.2f}% from {high_label}
-                    </span>
-                </div>
-                <div style="text-align: right;">
-                    {signal_badge(trend.upper(), trend)}
-                    <p style="color: #666; font-size: 0.8rem; margin-top: 8px;">Source: Gold-API</p>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    with m1:
+        dxy = indicators.get("dxy", {})
+        if "error" not in dxy:
+            val = dxy.get("value", 0)
+            chg = dxy.get("change", 0)
+            impact = dxy.get("gold_impact", "neutral")
+            st.metric("DXY (Dollar)", f"{val:.2f}", f"{chg:+.2f}", delta_color="inverse")
+            st.caption(f"Gold: {signal_emoji(impact)} {impact}")
 
-        # Sparkline for 20-day trend
-        if "error" not in silver_ind:
-            silver_hist = silver_ind.get("history")
-            if silver_hist is not None and len(silver_hist) >= 20:
-                sparkline_data = silver_hist['Close'].tail(20)
-                sparkline = create_sparkline(sparkline_data, "#C0C0C0", height=40, width=None)
-                if sparkline:
-                    st.plotly_chart(sparkline, use_container_width=True, config={'displayModeBar': False})
-    else:
-        st.error("Silver price unavailable")
+    with m2:
+        us10y = indicators.get("us10y", {})
+        if "error" not in us10y:
+            val = us10y.get("value", 0)
+            chg = us10y.get("change", 0)
+            st.metric("10Y Yield", f"{val:.2f}%", f"{chg:+.2f}%", delta_color="inverse")
 
-with hero_col3:
-    if copper_price:
-        # Use spot-based high with dynamic label showing days of data
-        copper_high, copper_days = get_spot_high_and_days("HG")
-        if copper_high and copper_days > 0:
-            pct_from_high = ((copper_price / copper_high) - 1) * 100
-            high_label = f"{copper_days}d high"
-        else:
-            pct_from_high = copper_ind.get('pct_from_52w_high', 0) if "error" not in copper_ind else 0
-            high_label = "52w high"
-        trend = copper_ind.get('trend', 'unknown') if "error" not in copper_ind else 'unknown'
+    with m3:
+        real = indicators.get("real_yield", {})
+        if "current" in real:
+            val = real.get("current", 0)
+            chg = real.get("change")
+            impact = real.get("gold_impact", "neutral")
+            delta_str = f"{chg:+.2f}%" if chg else None
+            st.metric("10Y Real Yield", f"{val:.2f}%", delta_str, delta_color="inverse")
+            st.caption(f"Gold: {signal_emoji(impact)} {impact}")
 
-        st.markdown(f"""
-        <div class="metric-card metric-card-copper">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <span style="color: #888; font-size: 0.9rem;">COPPER (HG/USD)</span>
-                    <h2 class="price-large price-copper">{format_price(copper_price)}/lb</h2>
-                    <span style="color: {'#00c853' if pct_from_high >= 0 else '#ff5252'}; font-size: 0.95rem;">
-                        {pct_from_high:+.2f}% from {high_label}
-                    </span>
-                </div>
-                <div style="text-align: right;">
-                    {signal_badge(trend.upper(), trend)}
-                    <p style="color: #666; font-size: 0.8rem; margin-top: 8px;">Source: Gold-API</p>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    with m4:
+        vix = indicators.get("vix", {})
+        if "error" not in vix:
+            val = vix.get("value", 0)
+            chg = vix.get("change", 0)
+            regime = vix.get("regime", "")
+            st.metric("VIX", f"{val:.1f}", f"{chg:+.1f}")
+            st.caption(regime)
 
-        # Sparkline for 20-day trend
-        if "error" not in copper_ind:
-            copper_hist = copper_ind.get("history")
-            if copper_hist is not None and len(copper_hist) >= 20:
-                sparkline_data = copper_hist['Close'].tail(20)
-                sparkline = create_sparkline(sparkline_data, "#B87333", height=40, width=None)
-                if sparkline:
-                    st.plotly_chart(sparkline, use_container_width=True, config={'displayModeBar': False})
-    else:
-        st.error("Copper price unavailable")
+    with m5:
+        move = indicators.get("move", {})
+        if "error" not in move:
+            val = move.get("value", 0)
+            chg = move.get("change", 0)
+            regime = move.get("regime", "")
+            st.metric("MOVE Index", f"{val:.1f}", f"{chg:+.1f}")
+            st.caption(regime)
 
 # === PROFESSIONAL 5-PILLAR ANALYSIS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
@@ -1832,146 +1852,56 @@ with st.expander("📊 Prediction Accuracy Dashboard", expanded=False):
     except Exception as e:
         st.error(f"Error loading accuracy data: {str(e)}")
 
-# === MACRO DRIVERS ===
-st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-st.markdown("### 🌍 Macro Environment")
-
-with st.expander("ℹ️ Understanding Macro Drivers", expanded=False):
-    st.markdown(MACRO_GUIDE)
-
-if "error" not in macro_data:
-    macro_bias = macro_data.get("macro_bias", "neutral")
-    indicators = macro_data.get("indicators", {})
-
-    # Overall bias banner
-    if macro_bias == "bullish":
-        st.success(f"**Overall Macro Bias:** 🟢 BULLISH FOR GOLD")
-    elif macro_bias == "bearish":
-        st.error(f"**Overall Macro Bias:** 🔴 BEARISH FOR GOLD")
-    else:
-        st.warning(f"**Overall Macro Bias:** ⚪ NEUTRAL")
-
-    m1, m2, m3, m4, m5 = st.columns(5)
-
-    with m1:
-        dxy = indicators.get("dxy", {})
-        if "error" not in dxy:
-            val = dxy.get("value", 0)
-            chg = dxy.get("change", 0)
-            impact = dxy.get("gold_impact", "neutral")
-            st.metric("DXY (Dollar)", f"{val:.2f}", f"{chg:+.2f}", delta_color="inverse")
-            st.caption(f"Gold: {signal_emoji(impact)} {impact}")
-
-    with m2:
-        us10y = indicators.get("us10y", {})
-        if "error" not in us10y:
-            val = us10y.get("value", 0)
-            chg = us10y.get("change", 0)
-            st.metric("10Y Yield", f"{val:.2f}%", f"{chg:+.2f}%", delta_color="inverse")
-
-    with m3:
-        real = indicators.get("real_yield", {})
-        if "current" in real:
-            val = real.get("current", 0)
-            chg = real.get("change")
-            impact = real.get("gold_impact", "neutral")
-            delta_str = f"{chg:+.2f}%" if chg else None
-            st.metric("10Y Real Yield", f"{val:.2f}%", delta_str, delta_color="inverse")
-            st.caption(f"Gold: {signal_emoji(impact)} {impact}")
-
-    with m4:
-        vix = indicators.get("vix", {})
-        if "error" not in vix:
-            val = vix.get("value", 0)
-            chg = vix.get("change", 0)
-            regime = vix.get("regime", "")
-            st.metric("VIX", f"{val:.1f}", f"{chg:+.1f}")
-            st.caption(regime)
-
-    with m5:
-        move = indicators.get("move", {})
-        if "error" not in move:
-            val = move.get("value", 0)
-            chg = move.get("change", 0)
-            regime = move.get("regime", "")
-            st.metric("MOVE Index", f"{val:.1f}", f"{chg:+.1f}")
-            st.caption(regime)
-
 # === METAL ANALYSIS ACCORDIONS ===
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 st.markdown("### 📊 Metal Analysis")
 st.markdown('<p class="metal-selector-header">Expand any metal for detailed technical analysis</p>', unsafe_allow_html=True)
 
 
-def get_verdict_info(ind, cot, macro, term, metal_type="standard"):
-    """Get verdict info for accordion header."""
-    if "error" in ind:
-        return "❓", "UNKNOWN", "#888"
+def render_verdict_reasons(verdict_data):
+    """Render the verdict reasons in a 2-column layout for better readability."""
+    if verdict_data is None:
+        return
 
-    if metal_type == "copper":
-        verdict_data = get_copper_verdict(ind, cot, macro, term)
-    else:
-        verdict_data = get_quick_verdict(ind, cot, macro, term)
+    signals = verdict_data.get("signals", [])
+    if not signals:
+        return
+
+    # Group signals by direction
+    bullish = [s for s in signals if s[1] == "bullish"]
+    bearish = [s for s in signals if s[1] == "bearish"]
+    neutral = [s for s in signals if s[1] == "neutral"]
 
     verdict = verdict_data.get("verdict", "NEUTRAL")
+    net_score = verdict_data.get("net_score", 0)
 
-    if "BULLISH" in verdict:
-        return "🟢", verdict, "#00c853"
-    elif "BEARISH" in verdict:
-        return "🔴", verdict, "#ff5252"
-    else:
-        return "🟡", verdict, "#ffc107"
+    # Summary line
+    st.markdown(f"**Verdict: {verdict}** (Score: {net_score:+d})")
 
+    # Two-column layout: Supporting vs Opposing signals
+    col1, col2 = st.columns(2)
 
-def get_daily_change(symbol: str, spot_price: float = None, ind: dict = None):
-    """
-    Get daily price change percentage using spot-to-spot comparison.
+    with col1:
+        st.markdown("**Supporting Signals**")
+        if bullish:
+            for name, _, desc in bullish:
+                st.caption(f"🟢 {name}: {desc}")
+        if neutral:
+            for name, _, desc in neutral:
+                st.caption(f"🟡 {name}: {desc}")
+        if not bullish and not neutral:
+            st.caption("_None_")
 
-    Compares today's live spot price against yesterday's spot close from
-    Gold-API history for accurate daily change calculation.
+    with col2:
+        st.markdown("**Opposing Signals**")
+        if bearish:
+            for name, _, desc in bearish:
+                st.caption(f"🔴 {name}: {desc}")
+        else:
+            st.caption("_None_")
 
-    Falls back to futures data if spot history isn't available (e.g., platinum).
+    st.markdown("---")
 
-    Args:
-        symbol: Metal symbol (XAU, XAG, HG, XPT, XPD)
-        spot_price: Current live spot price from Gold-API
-        ind: Indicator dict with futures history (fallback for metals like platinum)
-
-    Returns:
-        Percentage change as float, or None if unavailable
-    """
-    if spot_price is None:
-        return None
-
-    # Try spot-to-spot comparison first (most accurate)
-    yesterday_close = get_yesterday_spot_close(symbol)
-    if yesterday_close is not None:
-        return ((spot_price / yesterday_close) - 1) * 100
-
-    # Fallback to futures data for metals without spot history (e.g., platinum)
-    if ind is not None and "error" not in ind:
-        hist = ind.get("history")
-        if hist is not None and len(hist) >= 2:
-            # Use yesterday's futures close as fallback
-            yesterday_futures = hist["Close"].iloc[-2]
-            return ((spot_price / yesterday_futures) - 1) * 100
-
-    return None
-
-
-# Prepare accordion header data for all metals
-gold_emoji, gold_verdict_text, gold_color = get_verdict_info(gold_ind, gold_cot, macro_data, gold_term)
-silver_emoji, silver_verdict_text, silver_color = get_verdict_info(silver_ind, silver_cot, macro_data, silver_term)
-copper_emoji, copper_verdict_text, copper_color = get_verdict_info(copper_ind, copper_cot, copper_macro, copper_term, "copper")
-platinum_emoji, platinum_verdict_text, platinum_color = get_verdict_info(platinum_ind, platinum_cot, macro_data, platinum_term)
-palladium_emoji, palladium_verdict_text, palladium_color = get_verdict_info(palladium_ind, palladium_cot, macro_data, palladium_term)
-
-# Get daily changes - use spot history, with futures fallback for platinum
-gold_change = get_daily_change("XAU", gold_price)
-silver_change = get_daily_change("XAG", silver_price)
-copper_change = get_daily_change("HG", copper_price)
-platinum_change = get_daily_change("XPT", platinum_price, platinum_ind)  # Futures fallback
-palladium_change = get_daily_change("XPD", palladium_price)
 
 def render_technical_tab(ind, cot, term, metal_name):
     """Render technical analysis for a metal."""
@@ -2107,20 +2037,42 @@ def render_technical_tab(ind, cot, term, metal_name):
             comm_signal = cot.get('commercial_signal', 'neutral')
             mm_signal = cot.get('managed_money_signal', 'neutral')
             mm_momentum = cot.get('mm_momentum', 'unknown')
+            comm_pct = cot.get('commercial_percentile', 50)
+            mm_pct = cot.get('managed_money_percentile', 50)
 
             st.caption(f"Report: {cot.get('report_date', 'N/A')}")
 
+            # Commercial Hedgers with visual percentile bar
+            st.markdown(f"**Commercial Hedgers** {signal_emoji(comm_signal)}")
+            st.caption(f"Net: {format_number(cot.get('commercial_net'))}")
             st.markdown(f"""
-            **Commercial Hedgers** {signal_emoji(comm_signal)}
-            - Net: {format_number(cot.get('commercial_net'))}
-            - Percentile: {format_pct(cot.get('commercial_percentile'), False)}
+            <div style="display: flex; align-items: center; gap: 8px; margin: 4px 0 12px 0;">
+                <span style="width: 70px; color: #888; font-size: 0.8rem;">Percentile:</span>
+                <div style="flex: 1; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
+                    <div style="width: {comm_pct if comm_pct else 0}%; height: 100%;
+                         background: linear-gradient(90deg, #ff5252 0%, #ffc107 50%, #00c853 100%);
+                         border-radius: 4px;"></div>
+                </div>
+                <span style="width: 40px; color: #fff; font-size: 0.8rem;">{comm_pct:.0f}%</span>
+            </div>
+            """, unsafe_allow_html=True)
 
-            **Managed Money** {signal_emoji(mm_signal)} ({mm_momentum})
-            - Net: {format_number(cot.get('managed_money_net'))}
-            - Percentile: {format_pct(cot.get('managed_money_percentile'), False)}
+            # Managed Money with visual percentile bar
+            st.markdown(f"**Managed Money** {signal_emoji(mm_signal)} ({mm_momentum})")
+            st.caption(f"Net: {format_number(cot.get('managed_money_net'))}")
+            st.markdown(f"""
+            <div style="display: flex; align-items: center; gap: 8px; margin: 4px 0 12px 0;">
+                <span style="width: 70px; color: #888; font-size: 0.8rem;">Percentile:</span>
+                <div style="flex: 1; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
+                    <div style="width: {mm_pct if mm_pct else 0}%; height: 100%;
+                         background: linear-gradient(90deg, #00c853 0%, #ffc107 50%, #ff5252 100%);
+                         border-radius: 4px;"></div>
+                </div>
+                <span style="width: 40px; color: #fff; font-size: 0.8rem;">{mm_pct:.0f}%</span>
+            </div>
+            """, unsafe_allow_html=True)
 
-            **Open Interest:** {format_number(cot.get('open_interest'))}
-            """)
+            st.caption(f"**Open Interest:** {format_number(cot.get('open_interest'))}")
         else:
             st.warning("COT data unavailable")
 
@@ -2333,14 +2285,14 @@ try:
 except Exception as e:
     st.warning(f"LBMA vault data error: {str(e)[:100]}")
 
-st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-
 # === GOLD ACCORDION ===
+st.markdown('<div id="gold-section"></div>', unsafe_allow_html=True)
 gold_header = f"🥇 GOLD — {format_price(gold_price)} — {gold_emoji} {gold_verdict_text}"
 if gold_change is not None:
     gold_header += f" — {gold_change:+.1f}% today"
 
 with st.expander(gold_header, expanded=False):
+    render_verdict_reasons(gold_verdict_data)
     render_technical_tab(gold_ind, gold_cot, gold_term, "Gold")
 
     # CME Warehouse Inventory Section
@@ -2429,11 +2381,13 @@ with st.expander(gold_header, expanded=False):
                 st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 
 # === SILVER ACCORDION ===
+st.markdown('<div id="silver-section"></div>', unsafe_allow_html=True)
 silver_header = f"🥈 SILVER — {format_price(silver_price)} — {silver_emoji} {silver_verdict_text}"
 if silver_change is not None:
     silver_header += f" — {silver_change:+.1f}% today"
 
 with st.expander(silver_header, expanded=False):
+    render_verdict_reasons(silver_verdict_data)
     render_technical_tab(silver_ind, silver_cot, silver_term, "Silver")
 
     # CME Warehouse Inventory Section
@@ -2522,11 +2476,13 @@ with st.expander(silver_header, expanded=False):
                 st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 
 # === COPPER ACCORDION ===
+st.markdown('<div id="copper-section"></div>', unsafe_allow_html=True)
 copper_header = f"🔶 COPPER — {format_price(copper_price)}/lb — {copper_emoji} {copper_verdict_text}"
 if copper_change is not None:
     copper_header += f" — {copper_change:+.1f}% today"
 
 with st.expander(copper_header, expanded=False):
+    render_verdict_reasons(copper_verdict_data)
     render_technical_tab(copper_ind, copper_cot, copper_term, "Copper")
 
     # Copper-specific macro indicators
@@ -2681,11 +2637,13 @@ with st.expander(copper_header, expanded=False):
                 st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 
 # === PLATINUM ACCORDION ===
+st.markdown('<div id="platinum-section"></div>', unsafe_allow_html=True)
 platinum_header = f"⚪ PLATINUM — {format_price(platinum_price)} — {platinum_emoji} {platinum_verdict_text}"
 if platinum_change is not None:
     platinum_header += f" — {platinum_change:+.1f}% today"
 
 with st.expander(platinum_header, expanded=False):
+    render_verdict_reasons(platinum_verdict_data)
     render_technical_tab(platinum_ind, platinum_cot, platinum_term, "Platinum")
 
     # Platinum CME Inventory
@@ -2836,11 +2794,13 @@ with st.expander(platinum_header, expanded=False):
                 st.warning("AI analysis unavailable. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 
 # === PALLADIUM ACCORDION ===
+st.markdown('<div id="palladium-section"></div>', unsafe_allow_html=True)
 palladium_header = f"⬜ PALLADIUM — {format_price(palladium_price)} — {palladium_emoji} {palladium_verdict_text}"
 if palladium_change is not None:
     palladium_header += f" — {palladium_change:+.1f}% today"
 
 with st.expander(palladium_header, expanded=False):
+    render_verdict_reasons(palladium_verdict_data)
     render_technical_tab(palladium_ind, palladium_cot, palladium_term, "Palladium")
 
     # Palladium CME Inventory
