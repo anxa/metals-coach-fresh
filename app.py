@@ -45,6 +45,7 @@ from price_inventory_pressure import get_current_pressure, get_pressure_table_di
 from daily_changes import get_all_changes, format_changes_html
 from data_store import get_yesterday_spot_close, get_spot_high_and_days
 from news_fetcher import fetch_all_news
+from lbma_inventory import get_latest_lbma, get_lbma_history
 
 # === PAGE CONFIG ===
 st.set_page_config(
@@ -2217,6 +2218,122 @@ if not inventory_table.empty:
     st.caption("Reg = Registered (deliverable), Elig = Eligible (can be registered). Changes in brackets. Units: Gold in oz, Silver in M (millions), Copper in lbs, Pt/Pd in oz.")
 else:
     st.info("COMEX inventory data not yet available. Data is collected daily at 10:30 PM ET.")
+
+# === LBMA LONDON VAULT HOLDINGS ===
+st.markdown("#### 🏦 LBMA London Vault Holdings")
+
+try:
+    lbma_data = get_latest_lbma()
+    lbma_history = get_lbma_history()
+
+    if lbma_data:
+        # Data date info
+        st.caption(f"{lbma_data['as_of']} • {lbma_data['data_delay_note']}")
+
+        # Current holdings cards
+        lbma_col1, lbma_col2 = st.columns(2)
+
+        with lbma_col1:
+            gold_chg_color = "#00c853" if lbma_data['gold_change_pct'] >= 0 else "#ff5252"
+            st.markdown(f"""
+            <div style="background: linear-gradient(145deg, #1a2332 0%, #1e2940 100%);
+                        border-radius: 12px; padding: 16px; border-left: 4px solid #FFD700;">
+                <div style="color: #FFD700; font-size: 0.9rem; font-weight: 600;">🥇 GOLD</div>
+                <div style="font-size: 1.4rem; color: #fff; font-weight: bold; margin: 8px 0;">
+                    {lbma_data['gold_tonnes']:,.0f} tonnes
+                </div>
+                <div style="color: #aaa; font-size: 0.85rem;">
+                    {lbma_data['gold_oz']/1_000_000:.1f}M troy oz
+                </div>
+                <div style="color: {gold_chg_color}; font-size: 0.9rem; margin-top: 8px;">
+                    MoM: {lbma_data['gold_change_pct']:+.2f}% ({lbma_data['gold_change_tonnes']:+,.0f} tonnes)
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with lbma_col2:
+            silver_chg_color = "#00c853" if lbma_data['silver_change_pct'] >= 0 else "#ff5252"
+            st.markdown(f"""
+            <div style="background: linear-gradient(145deg, #1a2332 0%, #1e2940 100%);
+                        border-radius: 12px; padding: 16px; border-left: 4px solid #C0C0C0;">
+                <div style="color: #C0C0C0; font-size: 0.9rem; font-weight: 600;">🥈 SILVER</div>
+                <div style="font-size: 1.4rem; color: #fff; font-weight: bold; margin: 8px 0;">
+                    {lbma_data['silver_tonnes']:,.0f} tonnes
+                </div>
+                <div style="color: #aaa; font-size: 0.85rem;">
+                    {lbma_data['silver_oz']/1_000_000:.1f}M troy oz
+                </div>
+                <div style="color: {silver_chg_color}; font-size: 0.9rem; margin-top: 8px;">
+                    MoM: {lbma_data['silver_change_pct']:+.2f}% ({lbma_data['silver_change_tonnes']:+,.0f} tonnes)
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Historical chart
+        if lbma_history is not None and not lbma_history.empty:
+            with st.expander("📈 Historical LBMA Vault Holdings (Since July 2016)", expanded=False):
+                fig = go.Figure()
+
+                # Gold trace (left y-axis)
+                fig.add_trace(go.Scatter(
+                    x=lbma_history['date'],
+                    y=lbma_history['gold_tonnes'],
+                    name='Gold (tonnes)',
+                    line=dict(color='#FFD700', width=2),
+                    yaxis='y'
+                ))
+
+                # Silver trace (right y-axis)
+                fig.add_trace(go.Scatter(
+                    x=lbma_history['date'],
+                    y=lbma_history['silver_tonnes'],
+                    name='Silver (tonnes)',
+                    line=dict(color='#C0C0C0', width=2),
+                    yaxis='y2'
+                ))
+
+                fig.update_layout(
+                    template='plotly_dark',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(26,35,50,0.6)',
+                    height=400,
+                    margin=dict(l=60, r=60, t=40, b=40),
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="center",
+                        x=0.5
+                    ),
+                    yaxis=dict(
+                        title='Gold (tonnes)',
+                        titlefont=dict(color='#FFD700'),
+                        tickfont=dict(color='#FFD700'),
+                        side='left',
+                        showgrid=True,
+                        gridcolor='rgba(255,255,255,0.1)'
+                    ),
+                    yaxis2=dict(
+                        title='Silver (tonnes)',
+                        titlefont=dict(color='#C0C0C0'),
+                        tickfont=dict(color='#C0C0C0'),
+                        side='right',
+                        overlaying='y',
+                        showgrid=False
+                    ),
+                    xaxis=dict(
+                        showgrid=True,
+                        gridcolor='rgba(255,255,255,0.1)'
+                    ),
+                    hovermode='x unified'
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+                st.caption("Source: London Bullion Market Association (LBMA). Data represents end-of-month holdings in London vaults.")
+    else:
+        st.info("LBMA vault data temporarily unavailable.")
+except Exception as e:
+    st.info("LBMA vault data temporarily unavailable.")
 
 st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 
