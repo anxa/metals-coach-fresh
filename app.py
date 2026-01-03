@@ -2306,16 +2306,14 @@ try:
                         x=0.5
                     ),
                     yaxis=dict(
-                        title='Gold (tonnes)',
-                        titlefont=dict(color='#FFD700'),
+                        title=dict(text='Gold (tonnes)', font=dict(color='#FFD700')),
                         tickfont=dict(color='#FFD700'),
                         side='left',
                         showgrid=True,
                         gridcolor='rgba(255,255,255,0.1)'
                     ),
                     yaxis2=dict(
-                        title='Silver (tonnes)',
-                        titlefont=dict(color='#C0C0C0'),
+                        title=dict(text='Silver (tonnes)', font=dict(color='#C0C0C0')),
                         tickfont=dict(color='#C0C0C0'),
                         side='right',
                         overlaying='y',
