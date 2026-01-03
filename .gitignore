@@ -31,6 +31,9 @@ data/*.csv
 !data/xau_history.csv
 !data/xag_history.csv
 
+# And include LBMA vault holdings (monthly backup for fallback)
+!data/lbma_inventory.csv
+
 # IDE
 .vscode/
 .idea/

@@ -94,21 +94,18 @@ def fetch_lbma_data() -> Optional[pd.DataFrame]:
 
         return df.copy()
 
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching LBMA data: {e}")
-
     except Exception as e:
         print(f"Error fetching LBMA data: {e}")
 
-        # Try loading from local CSV fallback
-        if LBMA_CSV.exists():
-            try:
-                df = pd.read_csv(LBMA_CSV, parse_dates=["date"])
-                return df
-            except Exception:
-                pass
+    # Try loading from local CSV fallback
+    if LBMA_CSV.exists():
+        try:
+            df = pd.read_csv(LBMA_CSV, parse_dates=["date"])
+            return df
+        except Exception:
+            pass
 
-        return None
+    return None
 
 
 def get_lbma_history() -> Optional[pd.DataFrame]:
