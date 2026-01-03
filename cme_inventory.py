@@ -443,13 +443,14 @@ def get_inventory_history_table(days: int = 10) -> pd.DataFrame:
     Get inventory history for all metals as a table for display.
 
     Returns a DataFrame with dates as rows and metals as columns,
-    showing total inventory with day-over-day % change in brackets.
+    showing registered, eligible, and total with day-over-day changes.
 
     Args:
         days: Number of days to include (default 10)
 
     Returns:
         DataFrame formatted for display with dates descending.
+        Each metal has 3 sub-columns: Registered, Eligible, Total
     """
     metals = ["gold", "silver", "copper", "platinum", "palladium"]
     all_data = {}
@@ -462,37 +463,83 @@ def get_inventory_history_table(days: int = 10) -> pd.DataFrame:
         # Get last N days of data
         totals = totals.sort_values("date", ascending=False).head(days)
 
-        # Calculate day-over-day % change
+        # Calculate day-over-day changes for registered, eligible, total
         totals = totals.sort_values("date", ascending=True)
-        totals["pct_change"] = totals["total"].pct_change() * 100
+        totals["reg_change"] = totals["registered"].diff()
+        totals["elig_change"] = totals["eligible"].diff()
+        totals["total_change"] = totals["total"].diff()
 
-        # Format as "value (change%)"
-        formatted = []
-        for _, row in totals.iterrows():
-            total = row["total"]
-            pct = row["pct_change"]
+        # Format each metric with change
+        def format_with_change(value, change, is_large=False):
+            """Format value with change indicator."""
+            if pd.isna(value):
+                return "N/A"
 
-            if pd.isna(total):
-                formatted.append("N/A")
-            elif pd.isna(pct):
-                # First row has no previous day
-                formatted.append(f"{total:,.0f}")
+            # Use K/M suffixes for large numbers
+            if is_large:
+                if value >= 1_000_000:
+                    val_str = f"{value/1_000_000:.2f}M"
+                elif value >= 1_000:
+                    val_str = f"{value/1_000:.0f}K"
+                else:
+                    val_str = f"{value:,.0f}"
             else:
-                sign = "+" if pct >= 0 else ""
-                formatted.append(f"{total:,.0f} ({sign}{pct:.2f}%)")
+                val_str = f"{value:,.0f}"
 
-        # Store with date index
+            if pd.isna(change) or change == 0:
+                return val_str
+
+            # Format change
+            if is_large:
+                if abs(change) >= 1_000_000:
+                    chg_str = f"{change/1_000_000:+.2f}M"
+                elif abs(change) >= 1_000:
+                    chg_str = f"{change/1_000:+.0f}K"
+                else:
+                    chg_str = f"{change:+,.0f}"
+            else:
+                chg_str = f"{change:+,.0f}"
+
+            return f"{val_str} ({chg_str})"
+
+        # Determine if this metal uses large numbers (silver has millions)
+        is_large = metal in ["silver"]
+
+        # Build formatted data for each date
         totals = totals.sort_values("date", ascending=False)
-        dates = totals["date"].dt.strftime("%Y-%m-%d").tolist()
-        formatted.reverse()  # Match descending date order
+        for _, row in totals.iterrows():
+            date_str = row["date"].strftime("%Y-%m-%d")
 
-        all_data[metal.capitalize()] = dict(zip(dates, formatted))
+            if date_str not in all_data:
+                all_data[date_str] = {}
+
+            metal_cap = metal.capitalize()
+            all_data[date_str][f"{metal_cap} Reg"] = format_with_change(
+                row["registered"], row["reg_change"], is_large
+            )
+            all_data[date_str][f"{metal_cap} Elig"] = format_with_change(
+                row["eligible"], row["elig_change"], is_large
+            )
+            all_data[date_str][f"{metal_cap} Total"] = format_with_change(
+                row["total"], row["total_change"], is_large
+            )
 
     if not all_data:
         return pd.DataFrame()
 
-    # Build DataFrame from all metals
-    df = pd.DataFrame(all_data)
+    # Build DataFrame
+    df = pd.DataFrame.from_dict(all_data, orient="index")
+
+    # Order columns by metal
+    ordered_cols = []
+    for metal in metals:
+        metal_cap = metal.capitalize()
+        for suffix in ["Reg", "Elig", "Total"]:
+            col = f"{metal_cap} {suffix}"
+            if col in df.columns:
+                ordered_cols.append(col)
+
+    df = df[ordered_cols]
 
     # Sort index (dates) descending
     df = df.sort_index(ascending=False)

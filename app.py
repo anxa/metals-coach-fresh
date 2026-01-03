@@ -2214,7 +2214,7 @@ if not inventory_table.empty:
         use_container_width=True,
         height=400
     )
-    st.caption("Values show total inventory with day-over-day % change in brackets. Units: Gold/Silver in troy oz, Copper in lbs, Platinum/Palladium in troy oz.")
+    st.caption("Reg = Registered (deliverable), Elig = Eligible (can be registered). Changes in brackets. Units: Gold in oz, Silver in M (millions), Copper in lbs, Pt/Pd in oz.")
 else:
     st.info("COMEX inventory data not yet available. Data is collected daily at 10:30 PM ET.")
 
